@@ -65,4 +65,25 @@ export class CreateFarmhouseDto {
   @IsOptional()
   @IsString()
   ownerId?: string;
+
+  @ApiProperty({
+    example: ['Manager: +919876543210'],
+    description: 'List of contact numbers',
+    required: false,
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  contactNumbers?: string[];
+
+  @ApiProperty({
+    example: 2000,
+    description: 'Fixed token deposit amount required to book',
+    required: false,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  tokenAmount?: number;
 }

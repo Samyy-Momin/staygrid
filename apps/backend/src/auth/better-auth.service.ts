@@ -15,6 +15,14 @@ export class BetterAuthService {
       emailAndPassword: {
         enabled: true,
       },
+      user: {
+        additionalFields: {
+          role: {
+            type: 'string',
+            required: false,
+          },
+        },
+      },
       baseURL: 'http://localhost:3000',
       trustedOrigins: [
         'http://localhost:3001',

@@ -27,6 +27,13 @@ export class FarmhousesService {
     });
   }
 
+  async findByOwner(ownerId: string) {
+    return this.prisma.farmhouse.findMany({
+      where: { ownerId },
+      include: { owner: { select: { name: true, phone: true } } },
+    });
+  }
+
   async findOne(id: string) {
     const farmhouse = await this.prisma.farmhouse.findUnique({
       where: { id },
@@ -66,6 +73,31 @@ export class FarmhousesService {
     };
   }
 
+  async getOwnerStats(ownerId: string) {
+    const [farmhouses, bookings, revenueData] = await Promise.all([
+      this.prisma.farmhouse.count({ where: { ownerId } }),
+      this.prisma.booking.count({
+        where: {
+          farmhouse: { ownerId },
+          status: { in: ['CONFIRMED', 'COMPLETED'] },
+        },
+      }),
+      this.prisma.booking.aggregate({
+        where: {
+          farmhouse: { ownerId },
+          status: { in: ['CONFIRMED', 'COMPLETED'] },
+        },
+        _sum: { totalAmount: true },
+      }),
+    ]);
+
+    return {
+      farmhouses,
+      activeBookings: bookings,
+      totalRevenue: revenueData._sum.totalAmount || 0,
+    };
+  }
+
   async remove(id: string) {
     try {
       await this.prisma.farmhouse.delete({
@@ -75,5 +107,33 @@ export class FarmhousesService {
     } catch (error) {
       throw new NotFoundException('Failed to delete farmhouse.');
     }
+  }
+
+  async blockDateRange(
+    farmhouseId: string,
+    startDate: string,
+    endDate: string,
+    note?: string,
+  ) {
+    return this.prisma.blockedDateRange.create({
+      data: {
+        farmhouseId,
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+        note,
+      },
+    });
+  }
+
+  async getBlockedDates(farmhouseId: string) {
+    return this.prisma.blockedDateRange.findMany({
+      where: { farmhouseId },
+    });
+  }
+
+  async removeBlockedDateRange(id: string) {
+    return this.prisma.blockedDateRange.delete({
+      where: { id },
+    });
   }
 }

@@ -31,8 +31,8 @@ export class UploadService {
     if (!files || files.length === 0) {
       throw new BadRequestException('No files provided');
     }
-    const uploadPromises = files.map(file => this.uploadFile(file));
+    const uploadPromises = files.map((file) => this.uploadFile(file));
     const results = await Promise.all(uploadPromises);
-    return results.map(r => r.secure_url);
+    return results.map((r) => r.secure_url);
   }
 }

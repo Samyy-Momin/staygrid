@@ -1,4 +1,14 @@
-import { Controller, Post, Body, HttpCode, HttpStatus, Get, Delete, Param, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  HttpCode,
+  HttpStatus,
+  Get,
+  Delete,
+  Param,
+  UseGuards,
+} from '@nestjs/common';
 import { UsersService } from './users.service';
 import {
   ApiTags,
@@ -31,10 +41,11 @@ export class UsersController {
 
   @Get('customers')
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.OWNER)
   @ApiOperation({
     summary: 'List all Customers (End Users)',
-    description: 'Returns a list of all mobile app users. System Admin only.',
+    description:
+      'Returns a list of all mobile app users. System Admin & Owners.',
   })
   async getCustomers() {
     return this.usersService.findAllCustomers();
@@ -42,7 +53,7 @@ export class UsersController {
 
   @Post('customer')
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.OWNER)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Create Customer User',

@@ -53,14 +53,14 @@ export class RolesGuard implements CanActivate {
     // Better Auth might strip the 'role' field depending on config, so let's fetch it directly from DB
     const dbUser = await this.betterAuth.prisma.user.findUnique({
       where: { id: session.user.id },
-      select: { role: true }
+      select: { role: true },
     });
 
     if (!dbUser) {
       throw new UnauthorizedException('User not found in database');
     }
 
-    const userRole = dbUser.role as Role;
+    const userRole = dbUser.role;
     const hasRole = requiredRoles.includes(userRole);
 
     if (!hasRole) {

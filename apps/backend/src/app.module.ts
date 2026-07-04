@@ -10,6 +10,7 @@ import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { BookingsModule } from './bookings/bookings.module';
 import { ImportModule } from './import/import.module';
 import { UploadModule } from './upload/upload.module';
+import { OffersModule } from './offers/offers.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { UploadModule } from './upload/upload.module';
     BookingsModule,
     ImportModule,
     UploadModule,
+    OffersModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -36,11 +36,41 @@ export class BookingsService {
       (checkOut.getTime() - checkIn.getTime()) / (1000 * 3600 * 24),
     );
 
-    if (nights < 1)
+    if (nights < 0 || checkOut <= checkIn)
       throw new BadRequestException('Check-out must be after check-in');
 
-    const totalAmount = nights * farmhouse.pricePerNight;
-    const tokenPaid = totalAmount * 0.2; // 20% token
+    // Time-based Overlap Check
+    const overlappingBooking = await this.prisma.booking.findFirst({
+      where: {
+        farmhouseId: farmhouse.id,
+        status: { notIn: ['CANCELLED', 'ABANDONED'] },
+        checkIn: { lt: checkOut },
+        checkOut: { gt: checkIn },
+      },
+    });
+    if (overlappingBooking) {
+      throw new BadRequestException(
+        'This time slot overlaps with an existing booking.',
+      );
+    }
+
+    const overlappingBlocked = await this.prisma.blockedDateRange.findFirst({
+      where: {
+        farmhouseId: farmhouse.id,
+        startDate: { lt: checkOut },
+        endDate: { gt: checkIn },
+      },
+    });
+    if (overlappingBlocked) {
+      throw new BadRequestException(
+        'This time slot overlaps with blocked dates.',
+      );
+    }
+
+    // Use a fixed price if it's a partial day, otherwise normal calculation (can be edited later by Admin)
+    const totalAmount =
+      nights === 0 ? farmhouse.pricePerNight : nights * farmhouse.pricePerNight;
+    const tokenPaid = farmhouse.tokenAmount || 2000;
 
     const booking = await this.prisma.booking.create({
       data: {
@@ -123,10 +153,12 @@ export class BookingsService {
   async findAll() {
     return this.prisma.booking.findMany({
       include: {
-        farmhouse: { select: { title: true, owner: { select: { name: true } } } },
+        farmhouse: {
+          select: { title: true, owner: { select: { name: true } } },
+        },
         user: { select: { name: true, email: true, phone: true } },
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
     });
   }
 
@@ -138,12 +170,44 @@ export class BookingsService {
 
     const checkIn = new Date(createBookingDto.checkIn);
     const checkOut = new Date(createBookingDto.checkOut);
-    const nights = Math.ceil((checkOut.getTime() - checkIn.getTime()) / (1000 * 3600 * 24));
-    
-    if (nights < 1) throw new BadRequestException('Check-out must be after check-in');
+    const nights = Math.ceil(
+      (checkOut.getTime() - checkIn.getTime()) / (1000 * 3600 * 24),
+    );
 
-    const totalAmount = nights * farmhouse.pricePerNight;
-    const tokenPaid = totalAmount * 0.2; // Assuming admin collects 20% token manually
+    if (nights < 0 || checkOut <= checkIn)
+      throw new BadRequestException('Check-out must be after check-in');
+
+    // Time-based Overlap Check
+    const overlappingBooking = await this.prisma.booking.findFirst({
+      where: {
+        farmhouseId: farmhouse.id,
+        status: { notIn: ['CANCELLED', 'ABANDONED'] },
+        checkIn: { lt: checkOut },
+        checkOut: { gt: checkIn },
+      },
+    });
+    if (overlappingBooking) {
+      throw new BadRequestException(
+        'This time slot overlaps with an existing booking.',
+      );
+    }
+
+    const overlappingBlocked = await this.prisma.blockedDateRange.findFirst({
+      where: {
+        farmhouseId: farmhouse.id,
+        startDate: { lt: checkOut },
+        endDate: { gt: checkIn },
+      },
+    });
+    if (overlappingBlocked) {
+      throw new BadRequestException(
+        'This time slot overlaps with blocked dates.',
+      );
+    }
+
+    const totalAmount =
+      nights === 0 ? farmhouse.pricePerNight : nights * farmhouse.pricePerNight;
+    const tokenPaid = farmhouse.tokenAmount || 2000;
 
     const booking = await this.prisma.booking.create({
       data: {
@@ -163,7 +227,6 @@ export class BookingsService {
   }
 
   async generateInvoicePdf(bookingId: string, res: any) {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const PDFDocument = require('pdfkit');
 
     const booking = await this.prisma.booking.findUnique({
@@ -171,16 +234,19 @@ export class BookingsService {
       include: {
         farmhouse: { include: { owner: true } },
         user: true,
-      }
+      },
     });
 
     if (!booking) throw new NotFoundException('Booking not found');
 
     const doc = new PDFDocument({ margin: 50 });
-    
+
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename=invoice-${booking.id}.pdf`);
-    
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename=invoice-${booking.id}.pdf`,
+    );
+
     doc.pipe(res);
 
     // Header
@@ -191,7 +257,9 @@ export class BookingsService {
 
     // Title
     doc.fontSize(24).text('INVOICE', { align: 'left' });
-    doc.fontSize(10).text(`Invoice Number: INV-${booking.id.substring(0, 8).toUpperCase()}`);
+    doc
+      .fontSize(10)
+      .text(`Invoice Number: INV-${booking.id.substring(0, 8).toUpperCase()}`);
     doc.text(`Date: ${new Date().toLocaleDateString()}`);
     doc.moveDown(2);
 
@@ -216,24 +284,49 @@ export class BookingsService {
     doc.font('Helvetica-Bold');
     doc.text('Description', 50, tableTop);
     doc.text('Total', 450, tableTop, { align: 'right' });
-    doc.moveTo(50, tableTop + 15).lineTo(500, tableTop + 15).stroke();
-    
+    doc
+      .moveTo(50, tableTop + 15)
+      .lineTo(500, tableTop + 15)
+      .stroke();
+
     doc.font('Helvetica');
     doc.text('Farmhouse Stay', 50, tableTop + 25);
-    doc.text(`INR ${booking.totalAmount.toFixed(2)}`, 450, tableTop + 25, { align: 'right' });
-    
+    doc.text(`INR ${booking.totalAmount.toFixed(2)}`, 450, tableTop + 25, {
+      align: 'right',
+    });
+
     doc.text('Token Amount Paid', 50, tableTop + 45);
-    doc.text(`INR ${booking.tokenPaid.toFixed(2)}`, 450, tableTop + 45, { align: 'right' });
-    
+    doc.text(`INR ${booking.tokenPaid.toFixed(2)}`, 450, tableTop + 45, {
+      align: 'right',
+    });
+
     doc.font('Helvetica-Bold');
     doc.text('Balance Due', 50, tableTop + 75);
-    doc.text(`INR ${(booking.totalAmount - booking.tokenPaid).toFixed(2)}`, 450, tableTop + 75, { align: 'right' });
+    doc.text(
+      `INR ${(booking.totalAmount - booking.tokenPaid).toFixed(2)}`,
+      450,
+      tableTop + 75,
+      { align: 'right' },
+    );
 
-    doc.moveTo(50, tableTop + 90).lineTo(500, tableTop + 90).stroke();
+    doc
+      .moveTo(50, tableTop + 90)
+      .lineTo(500, tableTop + 90)
+      .stroke();
 
     doc.moveDown(4);
-    doc.font('Helvetica').fontSize(10).text('Thank you for booking with StayGrid!', { align: 'center' });
+    doc
+      .font('Helvetica')
+      .fontSize(10)
+      .text('Thank you for booking with StayGrid!', { align: 'center' });
 
     doc.end();
+  }
+
+  async cancelBooking(id: string) {
+    return this.prisma.booking.update({
+      where: { id },
+      data: { status: 'CANCELLED' },
+    });
   }
 }

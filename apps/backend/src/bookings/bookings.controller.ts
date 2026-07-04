@@ -1,4 +1,14 @@
-import { Controller, Post, Body, Get, UseGuards, Req, Param, Res } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Get,
+  UseGuards,
+  Req,
+  Param,
+  Res,
+  Patch,
+} from '@nestjs/common';
 import { BookingsService } from './bookings.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { VerifyPaymentDto } from './dto/verify-payment.dto';
@@ -51,33 +61,24 @@ export class BookingsController {
     return this.bookingsService.findByUser(req.user.id);
   }
 
-  @Get('owner')
-  @UseGuards(RolesGuard)
-  @Roles(Role.OWNER, Role.ADMIN)
-  @ApiBearerAuth()
-  @ApiOperation({
-    summary: 'Owner Bookings',
-    description: 'Get all incoming bookings for an owner',
-  })
-  async getOwnerBookings(@Req() req: AuthenticatedRequest) {
-    return this.bookingsService.findByOwner(req.user.id);
-  }
-
   @Get()
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.OWNER)
   @ApiBearerAuth()
   @ApiOperation({
-    summary: 'All Bookings',
-    description: 'Get all bookings (System Admin only)',
+    summary: 'All Bookings (Role Aware)',
+    description: 'Get all bookings (System Admin sees all, Owner sees theirs)',
   })
-  async getAllBookings() {
+  async getAllBookings(@Req() req: AuthenticatedRequest) {
+    if (req.user.role === Role.OWNER) {
+      return this.bookingsService.findByOwner(req.user.id);
+    }
     return this.bookingsService.findAll();
   }
 
   @Post('admin')
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.OWNER)
   @ApiBearerAuth()
   @ApiOperation({
     summary: 'Admin Create Booking',
@@ -87,7 +88,7 @@ export class BookingsController {
     @Body() createBookingDto: CreateBookingDto & { userId: string },
   ) {
     const { userId, ...dto } = createBookingDto;
-    return this.bookingsService.createAdminBooking(dto as CreateBookingDto, userId);
+    return this.bookingsService.createAdminBooking(dto, userId);
   }
 
   @Get(':id/invoice')
@@ -98,7 +99,23 @@ export class BookingsController {
     summary: 'Download Invoice',
     description: 'Generates and streams a PDF invoice for a booking',
   })
-  async getInvoice(@Param('id') id: string, @Req() req: AuthenticatedRequest, @Res() res: any) {
+  async getInvoice(
+    @Param('id') id: string,
+    @Req() req: AuthenticatedRequest,
+    @Res() res: any,
+  ) {
     return this.bookingsService.generateInvoicePdf(id, res);
+  }
+
+  @Patch(':id/cancel')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.OWNER)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Cancel Booking',
+    description: 'Mark a booking as CANCELLED',
+  })
+  async cancelBooking(@Param('id') id: string) {
+    return this.bookingsService.cancelBooking(id);
   }
 }

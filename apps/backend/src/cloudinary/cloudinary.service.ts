@@ -16,8 +16,10 @@ export class CloudinaryService {
         { folder: 'staygrid' },
         (error: any, result) => {
           if (error) {
-            // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-            const errMsg = error && typeof error === 'object' && 'message' in error ? String(error.message) : 'Upload failed';
+            const errMsg =
+              error && typeof error === 'object' && 'message' in error
+                ? String(error.message)
+                : 'Upload failed';
             return reject(new Error(errMsg));
           }
           resolve(result as UploadApiResponse);

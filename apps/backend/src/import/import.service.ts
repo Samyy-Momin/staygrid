@@ -5,7 +5,10 @@ import { BetterAuthService } from '../auth/better-auth.service';
 
 @Injectable()
 export class ImportService {
-  constructor(private prisma: PrismaService, private betterAuth: BetterAuthService) {}
+  constructor(
+    private prisma: PrismaService,
+    private betterAuth: BetterAuthService,
+  ) {}
 
   async validateImport(data: any[]) {
     if (!Array.isArray(data) || data.length === 0) {
@@ -13,22 +16,34 @@ export class ImportService {
     }
 
     const results = [];
-    
+
     for (const row of data) {
       if (!row.owner_email || !row.farmhouse_title) {
-        results.push({ ...row, status: 'INVALID', reason: 'Missing required fields' });
+        results.push({
+          ...row,
+          status: 'INVALID',
+          reason: 'Missing required fields',
+        });
         continue;
       }
 
       const existingOwner = await this.prisma.user.findUnique({
-        where: { email: row.owner_email }
+        where: { email: row.owner_email },
       });
 
       if (existingOwner) {
         if (existingOwner.role !== Role.OWNER) {
-          results.push({ ...row, status: 'INVALID', reason: 'Email belongs to non-owner user' });
+          results.push({
+            ...row,
+            status: 'INVALID',
+            reason: 'Email belongs to non-owner user',
+          });
         } else {
-          results.push({ ...row, status: 'EXISTING_OWNER', existingOwnerId: existingOwner.id });
+          results.push({
+            ...row,
+            status: 'EXISTING_OWNER',
+            existingOwnerId: existingOwner.id,
+          });
         }
       } else {
         results.push({ ...row, status: 'NEW_OWNER' });
@@ -37,9 +52,11 @@ export class ImportService {
 
     return {
       total: results.length,
-      validToImport: results.filter(r => r.status === 'NEW_OWNER' || r.status === 'EXISTING_OWNER').length,
-      invalid: results.filter(r => r.status === 'INVALID').length,
-      rows: results
+      validToImport: results.filter(
+        (r) => r.status === 'NEW_OWNER' || r.status === 'EXISTING_OWNER',
+      ).length,
+      invalid: results.filter((r) => r.status === 'INVALID').length,
+      rows: results,
     };
   }
 
@@ -54,7 +71,7 @@ export class ImportService {
 
       if (row.status === 'NEW_OWNER') {
         const password = row.owner_password || 'changeme123';
-        
+
         try {
           const authResult = await this.betterAuth.auth.api.signUpEmail({
             body: {
@@ -73,11 +90,11 @@ export class ImportService {
               phone: row.owner_phone || null,
             },
           });
-          
+
           ownerId = authResult.user.id;
           createdOwners++;
         } catch (error) {
-          console.error("Failed to create owner", error);
+          console.error('Failed to create owner', error);
           continue; // Skip farmhouse creation if owner fails
         }
       }
@@ -86,13 +103,16 @@ export class ImportService {
         await this.prisma.farmhouse.create({
           data: {
             title: row.farmhouse_title,
-            description: row.farmhouse_description || 'No description provided.',
+            description:
+              row.farmhouse_description || 'No description provided.',
             pricePerNight: Number(row.farmhouse_pricePerNight) || 0,
             capacity: Number(row.farmhouse_capacity) || 2,
             poolSize: row.farmhouse_poolSize || null,
-            amenities: row.farmhouse_amenities ? row.farmhouse_amenities.split(',').map((s: string) => s.trim()) : [],
-            ownerId: ownerId
-          }
+            amenities: row.farmhouse_amenities
+              ? row.farmhouse_amenities.split(',').map((s: string) => s.trim())
+              : [],
+            ownerId: ownerId,
+          },
         });
         createdFarmhouses++;
       }

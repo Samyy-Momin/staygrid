@@ -82,7 +82,7 @@ paths:
         - Users (Admins & Owners)
   /api/users/customers:
     get:
-      description: Returns a list of all mobile app users. System Admin only.
+      description: Returns a list of all mobile app users. System Admin & Owners.
       operationId: UsersController_getCustomers
       parameters: []
       responses:
@@ -147,23 +147,27 @@ paths:
       tags: &a4
         - Farmhouses
     get:
-      description: Get all farmhouses
+      description: Get farmhouses (Owners see only theirs)
       operationId: FarmhousesController_findAll
       parameters: []
       responses:
         "200":
           description: ""
-      summary: List Farmhouses
+      security:
+        - bearer: []
+      summary: List Farmhouses (Role Aware)
       tags: *a4
   /api/farmhouses/stats:
     get:
-      description: Get dashboard stats for farmhouses and bookings
+      description: Get dashboard stats
       operationId: FarmhousesController_getStats
       parameters: []
       responses:
         "200":
           description: ""
-      summary: Get Farmhouse Stats
+      security:
+        - bearer: []
+      summary: Get Farmhouse Stats (Role Aware)
       tags: *a4
   /api/farmhouses/{id}:
     get:
@@ -228,6 +232,51 @@ paths:
         - bearer: []
       summary: Toggle Farmhouse Status
       tags: *a4
+  /api/farmhouses/{id}/blocked-dates:
+    post:
+      operationId: FarmhousesController_blockDateRange
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "201":
+          description: ""
+      security:
+        - bearer: []
+      summary: Block a date range
+      tags: *a4
+    get:
+      operationId: FarmhousesController_getBlockedDates
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      summary: Get blocked date ranges
+      tags: *a4
+  /api/farmhouses/blocked-dates/{id}:
+    delete:
+      operationId: FarmhousesController_removeBlockedDateRange
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      security:
+        - bearer: []
+      summary: Remove a blocked date range
+      tags: *a4
   /api/media/upload:
     post:
       operationId: MediaController_uploadImage
@@ -270,7 +319,7 @@ paths:
       tags: &a5
         - Bookings
     get:
-      description: Get all bookings (System Admin only)
+      description: Get all bookings (System Admin sees all, Owner sees theirs)
       operationId: BookingsController_getAllBookings
       parameters: []
       responses:
@@ -278,7 +327,7 @@ paths:
           description: ""
       security:
         - bearer: []
-      summary: All Bookings
+      summary: All Bookings (Role Aware)
       tags: *a5
   /api/bookings/verify:
     post:
@@ -308,18 +357,6 @@ paths:
         - bearer: []
       summary: My Bookings
       tags: *a5
-  /api/bookings/owner:
-    get:
-      description: Get all incoming bookings for an owner
-      operationId: BookingsController_getOwnerBookings
-      parameters: []
-      responses:
-        "200":
-          description: ""
-      security:
-        - bearer: []
-      summary: Owner Bookings
-      tags: *a5
   /api/bookings/admin:
     post:
       description: Creates a confirmed booking on behalf of an end user
@@ -348,6 +385,23 @@ paths:
       security:
         - bearer: []
       summary: Download Invoice
+      tags: *a5
+  /api/bookings/{id}/cancel:
+    patch:
+      description: Mark a booking as CANCELLED
+      operationId: BookingsController_cancelBooking
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      security:
+        - bearer: []
+      summary: Cancel Booking
       tags: *a5
   /api/import/validate:
     post:
@@ -400,6 +454,58 @@ paths:
       summary: Upload images to Cloudinary
       tags:
         - Uploads
+  /api/farmhouses/{farmhouseId}/offers:
+    post:
+      operationId: OffersController_create
+      parameters:
+        - name: farmhouseId
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOfferDto"
+      responses:
+        "201":
+          description: ""
+      security:
+        - bearer: []
+      summary: Create an offer for a farmhouse
+      tags: &a7
+        - Offers
+    get:
+      operationId: OffersController_findAll
+      parameters:
+        - name: farmhouseId
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      summary: Get all offers for a farmhouse
+      tags: *a7
+  /api/farmhouses/{farmhouseId}/offers/{id}:
+    delete:
+      operationId: OffersController_remove
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      security:
+        - bearer: []
+      summary: Delete an offer
+      tags: *a7
 info:
   title: StayGrid API
   description: The core backend API for the StayGrid monorepo.
@@ -503,6 +609,17 @@ components:
           type: string
           example: uuid-string
           description: Owner ID (if created by System Admin for an Owner)
+        contactNumbers:
+          example:
+            - "Manager: +919876543210"
+          description: List of contact numbers
+          type: array
+          items:
+            type: string
+        tokenAmount:
+          type: number
+          example: 2000
+          description: Fixed token deposit amount required to book
       required:
         - title
         - description
@@ -553,3 +670,19 @@ components:
         - razorpayPaymentId
         - razorpayOrderId
         - razorpaySignature
+    CreateOfferDto:
+      type: object
+      properties:
+        title:
+          type: string
+          example: Half-Day Package
+        description:
+          type: string
+          example: Book from 5 AM to 5 PM
+        price:
+          type: number
+          example: 5000
+      required:
+        - title
+        - description
+        - price

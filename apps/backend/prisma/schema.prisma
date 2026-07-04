@@ -91,6 +91,9 @@ model Farmhouse {
   photos        String[]
   isActive      Boolean  @default(true)
   
+  contactNumbers String[] // e.g., ["Manager: +919876543210"]
+  tokenAmount    Float    @default(2000)
+  
   ownerId       String
   owner         User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   
@@ -98,8 +101,35 @@ model Farmhouse {
   updatedAt     DateTime @updatedAt
 
   bookings      Booking[]
+  blockedDates  BlockedDateRange[]
+  offers        Offer[]
 
   @@map("farmhouse")
+}
+
+model Offer {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  price       Float
+  
+  farmhouseId String
+  farmhouse   Farmhouse @relation(fields: [farmhouseId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("offer")
+}
+
+model BlockedDateRange {
+  id          String   @id @default(uuid())
+  startDate   DateTime
+  endDate     DateTime
+  note        String?
+  
+  farmhouseId String
+  farmhouse   Farmhouse @relation(fields: [farmhouseId], references: [id], onDelete: Cascade)
 }
 
 model Booking {

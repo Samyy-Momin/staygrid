@@ -55,7 +55,7 @@ export class UsersService {
         phone: true,
         createdAt: true,
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
     });
   }
 
@@ -71,11 +71,13 @@ export class UsersService {
         age: true,
         createdAt: true,
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
     });
   }
 
-  async createCustomer(dto: import('./dto/create-customer.dto').CreateCustomerDto) {
+  async createCustomer(
+    dto: import('./dto/create-customer.dto').CreateCustomerDto,
+  ) {
     const existing = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });

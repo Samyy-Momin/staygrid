@@ -60,20 +60,32 @@ export class FarmhousesController {
   }
 
   @Get()
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.OWNER)
+  @ApiBearerAuth()
   @ApiOperation({
-    summary: 'List Farmhouses',
-    description: 'Get all farmhouses',
+    summary: 'List Farmhouses (Role Aware)',
+    description: 'Get farmhouses (Owners see only theirs)',
   })
-  async findAll() {
+  async findAll(@Req() req: AuthenticatedRequest) {
+    if (req.user.role === Role.OWNER) {
+      return this.farmhousesService.findByOwner(req.user.id);
+    }
     return this.farmhousesService.findAll();
   }
 
   @Get('stats')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.OWNER)
+  @ApiBearerAuth()
   @ApiOperation({
-    summary: 'Get Farmhouse Stats',
-    description: 'Get dashboard stats for farmhouses and bookings',
+    summary: 'Get Farmhouse Stats (Role Aware)',
+    description: 'Get dashboard stats',
   })
-  async getStats() {
+  async getStats(@Req() req: AuthenticatedRequest) {
+    if (req.user.role === Role.OWNER) {
+      return this.farmhousesService.getOwnerStats(req.user.id);
+    }
     return this.farmhousesService.getStats();
   }
 
@@ -125,5 +137,34 @@ export class FarmhousesController {
   })
   async remove(@Param('id') id: string) {
     return this.farmhousesService.remove(id);
+  }
+
+  @Post(':id/blocked-dates')
+  @UseGuards(RolesGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Block a date range' })
+  async blockDateRange(
+    @Param('id') id: string,
+    @Body('startDate') startDate: string,
+    @Body('endDate') endDate: string,
+    @Body('note') note?: string,
+  ) {
+    return this.farmhousesService.blockDateRange(id, startDate, endDate, note);
+  }
+
+  @Get(':id/blocked-dates')
+  @ApiOperation({ summary: 'Get blocked date ranges' })
+  async getBlockedDates(@Param('id') id: string) {
+    return this.farmhousesService.getBlockedDates(id);
+  }
+
+  @Delete('blocked-dates/:id')
+  @UseGuards(RolesGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Remove a blocked date range' })
+  async removeBlockedDateRange(@Param('id') id: string) {
+    return this.farmhousesService.removeBlockedDateRange(id);
   }
 }
