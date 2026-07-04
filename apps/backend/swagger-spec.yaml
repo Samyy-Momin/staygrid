@@ -1,0 +1,555 @@
+openapi: 3.0.0
+paths:
+  /api:
+    get:
+      operationId: AppController_getHello
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      tags:
+        - App
+  /api/auth/{path}:
+    get:
+      operationId: AuthController_handleAuth_get
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      tags: &a1
+        - Auth
+    post:
+      operationId: AuthController_handleAuth_post
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      tags: *a1
+    put:
+      operationId: AuthController_handleAuth_put
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      tags: *a1
+    delete:
+      operationId: AuthController_handleAuth_delete
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      tags: *a1
+    patch:
+      operationId: AuthController_handleAuth_patch
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      tags: *a1
+    options:
+      operationId: AuthController_handleAuth_options
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      tags: *a1
+    head:
+      operationId: AuthController_handleAuth_head
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      tags: *a1
+    search:
+      operationId: AuthController_handleAuth_search
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      tags: *a1
+  /api/users/owners:
+    get:
+      description: Returns a list of all owners. System Admin only.
+      operationId: UsersController_getOwners
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      security: &a2
+        - bearer: []
+      summary: List all Owner Admins
+      tags: &a3
+        - Users (Admins & Owners)
+  /api/users/customers:
+    get:
+      description: Returns a list of all mobile app users. System Admin only.
+      operationId: UsersController_getCustomers
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      security: *a2
+      summary: List all Customers (End Users)
+      tags: *a3
+  /api/users/customer:
+    post:
+      description: Creates a new End User. System Admin only.
+      operationId: UsersController_createCustomer
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCustomerDto"
+      responses:
+        "201":
+          description: ""
+      security: *a2
+      summary: Create Customer User
+      tags: *a3
+  /api/users/owner:
+    post:
+      description: Creates a new Farmhouse Owner account. Only accessible by System Admins.
+      operationId: UsersController_createOwner
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOwnerDto"
+      responses:
+        "201":
+          description: Owner Admin successfully created.
+        "403":
+          description: Forbidden. Admin privileges required.
+      security: *a2
+      summary: Create Owner Admin
+      tags: *a3
+  /api/farmhouses:
+    post:
+      description: Create a new farmhouse listing
+      operationId: FarmhousesController_create
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateFarmhouseDto"
+      responses:
+        "201":
+          description: Farmhouse successfully created.
+      security:
+        - bearer: []
+      summary: Create Farmhouse
+      tags: &a4
+        - Farmhouses
+    get:
+      description: Get all farmhouses
+      operationId: FarmhousesController_findAll
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      summary: List Farmhouses
+      tags: *a4
+  /api/farmhouses/stats:
+    get:
+      description: Get dashboard stats for farmhouses and bookings
+      operationId: FarmhousesController_getStats
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      summary: Get Farmhouse Stats
+      tags: *a4
+  /api/farmhouses/{id}:
+    get:
+      operationId: FarmhousesController_findOne
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      summary: Get Farmhouse details
+      tags: *a4
+    patch:
+      description: Update farmhouse details (OWNER/ADMIN only)
+      operationId: FarmhousesController_update
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      security:
+        - bearer: []
+      summary: Update Farmhouse
+      tags: *a4
+    delete:
+      description: Permanently delete a farmhouse. System Admin only.
+      operationId: FarmhousesController_remove
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      security:
+        - bearer: []
+      summary: Delete Farmhouse
+      tags: *a4
+  /api/farmhouses/{id}/status:
+    patch:
+      description: Toggle isActive true/false. System Admin only.
+      operationId: FarmhousesController_toggleStatus
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      security:
+        - bearer: []
+      summary: Toggle Farmhouse Status
+      tags: *a4
+  /api/media/upload:
+    post:
+      operationId: MediaController_uploadImage
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "201":
+          description: ""
+      security:
+        - bearer: []
+      summary: "Upload an image to Cloudinary (Protected: OWNER, ADMIN)"
+      tags:
+        - Media
+  /api/bookings:
+    post:
+      description: Creates a booking and a Razorpay order (Protected)
+      operationId: BookingsController_create
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBookingDto"
+      responses:
+        "201":
+          description: ""
+      security:
+        - bearer: []
+      summary: Create Booking
+      tags: &a5
+        - Bookings
+    get:
+      description: Get all bookings (System Admin only)
+      operationId: BookingsController_getAllBookings
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      security:
+        - bearer: []
+      summary: All Bookings
+      tags: *a5
+  /api/bookings/verify:
+    post:
+      description: Verifies Razorpay signature and confirms booking
+      operationId: BookingsController_verifyPayment
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyPaymentDto"
+      responses:
+        "201":
+          description: ""
+      summary: Verify Payment
+      tags: *a5
+  /api/bookings/me:
+    get:
+      description: Get all bookings for the logged-in customer
+      operationId: BookingsController_getMyBookings
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      security:
+        - bearer: []
+      summary: My Bookings
+      tags: *a5
+  /api/bookings/owner:
+    get:
+      description: Get all incoming bookings for an owner
+      operationId: BookingsController_getOwnerBookings
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      security:
+        - bearer: []
+      summary: Owner Bookings
+      tags: *a5
+  /api/bookings/admin:
+    post:
+      description: Creates a confirmed booking on behalf of an end user
+      operationId: BookingsController_createAdminBooking
+      parameters: []
+      responses:
+        "201":
+          description: ""
+      security:
+        - bearer: []
+      summary: Admin Create Booking
+      tags: *a5
+  /api/bookings/{id}/invoice:
+    get:
+      description: Generates and streams a PDF invoice for a booking
+      operationId: BookingsController_getInvoice
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      security:
+        - bearer: []
+      summary: Download Invoice
+      tags: *a5
+  /api/import/validate:
+    post:
+      operationId: ImportController_validateImport
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: string
+      responses:
+        "201":
+          description: ""
+      security:
+        - bearer: []
+      summary: Validate CSV Import
+      tags: &a6
+        - Import
+  /api/import/execute:
+    post:
+      operationId: ImportController_executeImport
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: string
+      responses:
+        "201":
+          description: ""
+      security:
+        - bearer: []
+      summary: Execute CSV Import
+      tags: *a6
+  /api/upload:
+    post:
+      operationId: UploadController_uploadPhotos
+      parameters: []
+      responses:
+        "201":
+          description: ""
+      security:
+        - bearer: []
+      summary: Upload images to Cloudinary
+      tags:
+        - Uploads
+info:
+  title: StayGrid API
+  description: The core backend API for the StayGrid monorepo.
+  version: "1.0"
+  contact: {}
+tags: []
+servers: []
+components:
+  securitySchemes:
+    bearer:
+      scheme: bearer
+      bearerFormat: JWT
+      type: http
+  schemas:
+    CreateCustomerDto:
+      type: object
+      properties:
+        email:
+          type: string
+          example: john.doe@example.com
+        password:
+          type: string
+          example: securePassword123
+        name:
+          type: string
+          example: John Doe
+        phone:
+          type: string
+          example: "+1234567890"
+        gender:
+          type: string
+          example: Male
+        age:
+          type: number
+          example: 30
+      required:
+        - email
+        - password
+        - name
+        - phone
+    CreateOwnerDto:
+      type: object
+      properties:
+        email:
+          type: string
+          example: owner1@staygrid.com
+          description: The email for the new Farmhouse Owner
+        password:
+          type: string
+          example: securePassword123
+          description: Temporary password for the owner
+        name:
+          type: string
+          example: John Owner
+        phone:
+          type: string
+          example: "+1234567890"
+      required:
+        - email
+        - password
+    CreateFarmhouseDto:
+      type: object
+      properties:
+        title:
+          type: string
+          example: Sunset Villa
+          description: Name of the farmhouse
+        description:
+          type: string
+          example: A beautiful villa with a sunset view.
+          description: Farmhouse description
+        pricePerNight:
+          type: number
+          example: 150
+          description: Price per night in USD
+        capacity:
+          type: number
+          example: 10
+          description: Maximum guest capacity
+        poolSize:
+          type: string
+          example: 10x20 ft
+          description: Pool dimensions
+        amenities:
+          example:
+            - WiFi
+            - BBQ
+            - Pool
+          description: List of amenities
+          type: array
+          items:
+            type: string
+        photos:
+          example:
+            - https://res.cloudinary.com/..
+          description: List of photo URLs
+          type: array
+          items:
+            type: string
+        ownerId:
+          type: string
+          example: uuid-string
+          description: Owner ID (if created by System Admin for an Owner)
+      required:
+        - title
+        - description
+        - pricePerNight
+        - capacity
+    CreateBookingDto:
+      type: object
+      properties:
+        checkIn:
+          type: string
+          example: 2026-08-01
+          description: Check-in date
+        checkOut:
+          type: string
+          example: 2026-08-03
+          description: Check-out date
+        adults:
+          type: number
+          example: 2
+          description: Number of adults
+        children:
+          type: number
+          example: 0
+          description: Number of children
+        farmhouseId:
+          type: string
+          example: farmhouse-uuid
+          description: ID of the farmhouse
+      required:
+        - checkIn
+        - checkOut
+        - adults
+        - children
+        - farmhouseId
+    VerifyPaymentDto:
+      type: object
+      properties:
+        razorpayPaymentId:
+          type: string
+          description: Razorpay Payment ID
+        razorpayOrderId:
+          type: string
+          description: Razorpay Order ID
+        razorpaySignature:
+          type: string
+          description: Razorpay Signature
+      required:
+        - razorpayPaymentId
+        - razorpayOrderId
+        - razorpaySignature
