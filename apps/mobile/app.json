@@ -2,6 +2,8 @@
   "expo": {
     "name": "mobile",
     "slug": "mobile",
+    "scheme": "staygrid",
+    "jsEngine": "hermes",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -20,6 +22,14 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FBFBF9"
+    },
+    "plugins": [
+      "expo-router"
+    ]
   }
 }

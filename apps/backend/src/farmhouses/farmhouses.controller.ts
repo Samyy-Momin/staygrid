@@ -10,6 +10,8 @@ import {
   Delete,
   UseGuards,
   Req,
+  Query,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { FarmhousesService } from './farmhouses.service';
 import {
@@ -23,6 +25,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { Role } from '@prisma/client';
 import { Request } from 'express';
+import { OptionalAuthGuard } from '../auth/guards/optional-auth.guard';
 
 interface AuthenticatedRequest extends Request {
   user: { id: string; [key: string]: any };
@@ -60,18 +63,35 @@ export class FarmhousesController {
   }
 
   @Get()
-  @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN, Role.OWNER)
-  @ApiBearerAuth()
+  @UseGuards(OptionalAuthGuard)
   @ApiOperation({
-    summary: 'List Farmhouses (Role Aware)',
-    description: 'Get farmhouses (Owners see only theirs)',
+    summary: 'List Farmhouses (Public & Role Aware)',
+    description: 'Get farmhouses. Supports fuzzy search via ?search=',
   })
-  async findAll(@Req() req: AuthenticatedRequest) {
-    if (req.user.role === Role.OWNER) {
-      return this.farmhousesService.findByOwner(req.user.id);
+  async findAll(
+    @Req() req: AuthenticatedRequest, 
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('isFeatured') isFeatured?: string,
+    @Query('hasPool') hasPool?: string,
+    @Query('hasTurf') hasTurf?: string,
+    @Query('isPetFriendly') isPetFriendly?: string,
+    @Query('isCoupleFriendly') isCoupleFriendly?: string
+  ) {
+    const pageNum = page ? parseInt(page, 10) : 1;
+    const limitNum = limit ? parseInt(limit, 10) : 20;
+    const filters: any = {};
+    if (isFeatured === 'true') filters.isFeatured = true;
+    if (hasPool === 'true') filters.hasPool = true;
+    if (hasTurf === 'true') filters.hasTurf = true;
+    if (isPetFriendly === 'true') filters.isPetFriendly = true;
+    if (isCoupleFriendly === 'true') filters.isCoupleFriendly = true;
+
+    if (req.user && req.user.role === Role.OWNER) {
+      return this.farmhousesService.findByOwner(req.user.id, search, pageNum, limitNum);
     }
-    return this.farmhousesService.findAll();
+    return this.farmhousesService.findAll(search, pageNum, limitNum, filters);
   }
 
   @Get('stats')
@@ -97,6 +117,16 @@ export class FarmhousesController {
     return this.farmhousesService.findOne(id);
   }
 
+  @Get(':id/availability')
+  @UseGuards(OptionalAuthGuard)
+  @ApiOperation({
+    summary: 'Get Farmhouse Availability',
+    description: 'Returns array of unavailable dates for the farmhouse',
+  })
+  async getAvailability(@Param('id') id: string) {
+    return this.farmhousesService.getAvailability(id);
+  }
+
   @Patch(':id')
   @UseGuards(RolesGuard)
   @Roles(Role.OWNER, Role.ADMIN)
@@ -106,9 +136,16 @@ export class FarmhousesController {
     description: 'Update farmhouse details (OWNER/ADMIN only)',
   })
   async update(
+    @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
     @Body() updateData: Partial<CreateFarmhouseDto>,
   ) {
+    if (req.user.role === Role.OWNER) {
+      const farmhouse = await this.farmhousesService.findOne(id);
+      if (farmhouse.ownerId !== req.user.id) {
+        throw new UnauthorizedException("You do not own this farmhouse");
+      }
+    }
     return this.farmhousesService.update(id, updateData);
   }
 
@@ -145,11 +182,18 @@ export class FarmhousesController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Block a date range' })
   async blockDateRange(
+    @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
     @Body('startDate') startDate: string,
     @Body('endDate') endDate: string,
     @Body('note') note?: string,
   ) {
+    if (req.user.role === Role.OWNER) {
+      const farmhouse = await this.farmhousesService.findOne(id);
+      if (farmhouse.ownerId !== req.user.id) {
+        throw new UnauthorizedException("You do not own this farmhouse");
+      }
+    }
     return this.farmhousesService.blockDateRange(id, startDate, endDate, note);
   }
 
@@ -164,7 +208,21 @@ export class FarmhousesController {
   @Roles(Role.OWNER, Role.ADMIN)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Remove a blocked date range' })
-  async removeBlockedDateRange(@Param('id') id: string) {
+  async removeBlockedDateRange(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') id: string
+  ) {
+    if (req.user.role === Role.OWNER) {
+      // Need to find which farmhouse this blocked date belongs to, but it's easier to just check it inside the service or get the blocked date first.
+      // Let's get the blocked date via prisma directly or in service.
+      const blockedDate = await this.farmhousesService.getBlockedDateById(id);
+      if (blockedDate) {
+         const farmhouse = await this.farmhousesService.findOne(blockedDate.farmhouseId);
+         if (farmhouse.ownerId !== req.user.id) {
+           throw new UnauthorizedException("You do not own this farmhouse");
+         }
+      }
+    }
     return this.farmhousesService.removeBlockedDateRange(id);
   }
 }

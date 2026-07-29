@@ -35,4 +35,20 @@ export class UploadService {
     const results = await Promise.all(uploadPromises);
     return results.map((r) => r.secure_url);
   }
+
+  async deleteFileByUrl(url: string) {
+    try {
+      const parts = url.split('/');
+      const filename = parts.pop();
+      const folder = parts.pop();
+      if (filename && folder) {
+        const publicId = `${folder}/${filename.split('.')[0]}`;
+        await cloudinary.uploader.destroy(publicId);
+      }
+      return { success: true };
+    } catch (e) {
+      console.error('Failed to delete image from cloudinary', e);
+      return { success: false };
+    }
+  }
 }

@@ -1,0 +1,83 @@
+import { View, Text, TouchableOpacity, ActivityIndicator, Alert } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
+import { useState, useEffect } from "react";
+import { authApi } from "../../lib/authApi";
+import { LogOut, Settings } from "lucide-react-native";
+import { useThemeColors } from "../../lib/theme-colors";
+
+export default function ProfileScreen() {
+ const router = useRouter();
+ const colors = useThemeColors();
+ const [session, setSession] = useState<any>(null);
+ const [loading, setLoading] = useState(true);
+
+ useEffect(() => {
+ authApi.getSession().then((data) => {
+ if (data?.user) setSession(data);
+ setLoading(false);
+ }).catch(() => setLoading(false));
+ }, []);
+
+ if (loading) {
+ return (
+ <SafeAreaView className="flex-1 bg-surface dark:bg-surface justify-center items-center p-6">
+ <ActivityIndicator size="large" color={colors.accentPrimary} />
+ </SafeAreaView>
+ );
+ }
+
+ const user = session?.user;
+ const initials = user?.name ? user.name.substring(0, 2).toUpperCase() : "NA";
+
+ return (
+ <SafeAreaView className="flex-1 bg-surface dark:bg-surface justify-center items-center p-6">
+ <View className="w-24 h-24 bg-surface dark:bg-surface rounded-full items-center justify-center mb-4">
+ <Text className="text-3xl text-accent-primary dark:text-text-muted font-[Inter_700Bold]">{initials}</Text>
+ </View>
+ <Text className="text-2xl font-[Inter_700Bold] text-text-primary dark:text-surface">{user?.name || "Guest User"}</Text>
+ <Text className="text-text-muted dark:text-text-muted font-[Inter_400Regular] mt-1 mb-8">{user?.phone || user?.email || "No contact info"}</Text>
+
+ <TouchableOpacity 
+ className="w-full bg-surface dark:bg-surface rounded-xl py-4 items-center mb-4 flex-row justify-center"
+ onPress={() => alert("Settings coming soon")}
+ >
+ <View style={{ marginRight: 8 }}>
+ <Settings size={20} color="#9B9B9B" />
+ </View>
+ <Text className="text-text-primary dark:text-surface text-lg font-[Inter_600SemiBold]">Settings</Text>
+ </TouchableOpacity>
+
+ <TouchableOpacity 
+ className="w-full bg-danger/10 dark:bg-surface border border-danger dark:border-danger rounded-xl py-4 items-center flex-row justify-center"
+ onPress={() => {
+ Alert.alert(
+ "Log Out",
+ "Are you sure you want to log out of your account?",
+ [
+ { text: "Cancel", style: "cancel" },
+ { 
+ text: "Log Out", 
+ style: "destructive",
+ onPress: async () => {
+ try {
+ await authApi.signOut();
+ } catch (e) {
+ console.error(e);
+ } finally {
+ router.replace("/auth/login");
+ }
+ }
+ }
+ ]
+ );
+ }}
+ >
+ <View style={{ marginRight: 8 }}>
+ <LogOut size={20} color="#EF4444" />
+ </View>
+ <Text className="text-danger text-lg font-[Inter_600SemiBold]">Log Out</Text>
+ </TouchableOpacity>
+ </SafeAreaView>
+ );
+}

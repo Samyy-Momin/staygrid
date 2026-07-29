@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsDateString, IsNumber, Min } from 'class-validator';
+import { IsString, IsDateString, IsNumber, Min, IsOptional } from 'class-validator';
 
 export class CreateBookingDto {
   @ApiProperty({ example: '2026-08-01', description: 'Check-in date' })
@@ -26,4 +26,13 @@ export class CreateBookingDto {
   })
   @IsString()
   farmhouseId: string;
+
+  @ApiProperty({
+    example: 'Late check-in expected',
+    description: 'Additional notes or requests',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  notes?: string;
 }

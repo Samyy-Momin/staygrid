@@ -18,6 +18,7 @@ enum BookingStatus {
   ABANDONED
   COMPLETED
   CANCELLED
+  SAVED
 }
 
 model User {
@@ -42,6 +43,8 @@ model User {
   // App relations
   farmhouses    Farmhouse[]
   bookings      Booking[]
+  reviews       Review[]
+  favorites     Favorite[]
 
   @@map("user")
 }
@@ -83,17 +86,78 @@ model Account {
 model Farmhouse {
   id            String   @id @default(uuid())
   title         String
-  description   String
-  pricePerNight Float
-  capacity      Int
-  poolSize      String?
-  amenities     String[]
+  price12Hours  Float    @default(0)
+  price24Hours  Float    @default(0)
+  capacity      Int      @default(1)
+  maxIncludedGuests Int?
+  extraGuestFee     Float?
   photos        String[]
   isActive      Boolean  @default(true)
+  isFeatured    Boolean  @default(false)
+  isCoupleFriendly Boolean @default(false)
+  isPetFriendly    Boolean @default(false)
   
-  contactNumbers String[] // e.g., ["Manager: +919876543210"]
+  // Location
+  streetAddress String?
+  city          String?
+  state         String?
+  country       String?  @default("India")
+  postalCode    String?
+  latitude      Float?
+  longitude     Float?
+  
+  contactNumbers String[]
   tokenAmount    Float    @default(2000)
+  isWheelchairAccessible Boolean @default(false)
   
+  // Outdoor
+  hasPool       Boolean  @default(false)
+  poolType      String?  // "ATTACHED" | "SEPARATE"
+  poolSize      String?
+  babyPoolSize  String?
+  hasTurf       Boolean  @default(false)
+  hasRainDance  Boolean  @default(false)
+  hasPlayArea   Boolean  @default(false)
+  hasGardenArea Boolean  @default(false)
+  hasGazebo     Boolean  @default(false)
+  hasCelebrationArea Boolean @default(false)
+
+  // Indoor (Rooms)
+  roomCount      Int      @default(1)
+  acRoomCount    Int      @default(0)
+  nonAcRoomCount Int      @default(0)
+  hallCount      Int      @default(0)
+  
+  // Beds
+  singleBedCount Int      @default(0)
+  doubleBedCount Int      @default(0)
+  extraMattressCount Int  @default(0)
+  balconyCount   Int      @default(0)
+  
+  // Kitchen
+  hasKitchen    Boolean  @default(false)
+  hasFridge     Boolean  @default(false)
+  hasRoWater    Boolean  @default(false)
+  hasBbq        Boolean  @default(false)
+  hasGas        Boolean  @default(false)
+  gasCharge     Float?
+  
+  // Indoor Games
+  hasCarom      Boolean  @default(false)
+  hasUno        Boolean  @default(false)
+  hasTeenPatti  Boolean  @default(false)
+  hasChess      Boolean  @default(false)
+  has8BallPool  Boolean  @default(false)
+  
+  // Electronics
+  hasTv         Boolean  @default(false)
+  hasSpeakers   Boolean  @default(false)
+  hasMicrophone Boolean  @default(false)
+  hasWifi       Boolean  @default(false)
+  
+  isBestMatch   Boolean  @default(false)
+  isTrusted     Boolean  @default(false)
+
   ownerId       String
   owner         User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   
@@ -103,8 +167,70 @@ model Farmhouse {
   bookings      Booking[]
   blockedDates  BlockedDateRange[]
   offers        Offer[]
+  reviews       Review[]
+  favorites     Favorite[]
 
   @@map("farmhouse")
+}
+
+model Category {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  iconName  String?  // fallback icon name from lucide
+  imageUrl  String?  // uploaded image URL
+  filterKey String   // the key used to filter (e.g., hasPool)
+  isActive  Boolean  @default(true)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("category")
+}
+
+model HeroBanner {
+  id          String   @id @default(uuid())
+  heading     String
+  subheading  String?
+  buttonText  String?
+  imageUrl    String
+  isActive    Boolean  @default(true)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("hero_banner")
+}
+
+model Review {
+  id          String    @id @default(uuid())
+  rating      Int       @default(5)
+  comment     String?
+  
+  farmhouseId String
+  farmhouse   Farmhouse @relation(fields: [farmhouseId], references: [id], onDelete: Cascade)
+  
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("review")
+}
+
+model Favorite {
+  id          String    @id @default(uuid())
+  
+  farmhouseId String
+  farmhouse   Farmhouse @relation(fields: [farmhouseId], references: [id], onDelete: Cascade)
+  
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime  @default(now())
+
+  @@unique([userId, farmhouseId])
+  @@map("favorite")
 }
 
 model Offer {
@@ -141,6 +267,7 @@ model Booking {
   totalAmount     Float
   tokenPaid       Float
   status          BookingStatus @default(PENDING_PAYMENT)
+  notes           String?
   razorpayOrderId String?
   razorpayPaymentId String?
 
@@ -152,4 +279,13 @@ model Booking {
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model SystemSetting {
+  key         String   @id // e.g., "FEATURED_CONTACT_NUMBER"
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("system_setting")
 }

@@ -9,14 +9,15 @@ import * as yaml from 'yaml';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Enable CORS properly for credentials
   app.enableCors({
-    origin: [
-      'http://localhost:3001',
-      'http://localhost:3002',
-      'http://localhost:3000',
-      'http://127.0.0.1:3001',
-    ],
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+      // Allow requests with no origin (like mobile apps) or specific allowed origins
+      if (!origin || origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1') || origin.match(/^http:\/\/(192\.168|10\.|172\.(1[6-9]|2[0-9]|3[0-1]))\.\d{1,3}\.\d{1,3}:\d+$/)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
   });
 
@@ -42,6 +43,6 @@ async function bootstrap() {
 
   SwaggerModule.setup('api/docs', app, document);
 
-  await app.listen(3000);
+  await app.listen(3000, '0.0.0.0');
 }
 void bootstrap();

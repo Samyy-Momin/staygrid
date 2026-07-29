@@ -6,6 +6,9 @@ import {
   ParseFilePipe,
   MaxFileSizeValidator,
   UseGuards,
+  Delete,
+  BadRequestException,
+  Body,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { UploadService } from './upload.service';
@@ -43,5 +46,17 @@ export class UploadController {
   ) {
     const urls = await this.uploadService.uploadMultiple(files);
     return { urls };
+  }
+
+  @Delete()
+  @UseGuards(RolesGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Delete image from Cloudinary' })
+  async deletePhoto(@Body('url') url: string) {
+    if (!url) {
+      throw new BadRequestException('URL is required');
+    }
+    return this.uploadService.deleteFileByUrl(url);
   }
 }

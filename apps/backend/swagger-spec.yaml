@@ -9,6 +9,31 @@ paths:
           description: ""
       tags:
         - App
+  /api/auth/resolve-phone:
+    post:
+      operationId: AuthController_resolvePhone
+      parameters: []
+      responses:
+        "201":
+          description: ""
+      tags: &a1
+        - Auth
+  /api/auth/mobile-otp/send:
+    post:
+      operationId: AuthController_sendMobileOtp
+      parameters: []
+      responses:
+        "201":
+          description: ""
+      tags: *a1
+  /api/auth/mobile-otp/verify:
+    post:
+      operationId: AuthController_verifyMobileOtp
+      parameters: []
+      responses:
+        "201":
+          description: ""
+      tags: *a1
   /api/auth/{path}:
     get:
       operationId: AuthController_handleAuth_get
@@ -16,8 +41,7 @@ paths:
       responses:
         "200":
           description: ""
-      tags: &a1
-        - Auth
+      tags: *a1
     post:
       operationId: AuthController_handleAuth_post
       parameters: []
@@ -147,15 +171,53 @@ paths:
       tags: &a4
         - Farmhouses
     get:
-      description: Get farmhouses (Owners see only theirs)
+      description: Get farmhouses. Supports fuzzy search via ?search=
       operationId: FarmhousesController_findAll
-      parameters: []
+      parameters:
+        - name: search
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: page
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: limit
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: isFeatured
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: hasPool
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: hasTurf
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: isPetFriendly
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: isCoupleFriendly
+          required: true
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: ""
-      security:
-        - bearer: []
-      summary: List Farmhouses (Role Aware)
+      summary: List Farmhouses (Public & Role Aware)
       tags: *a4
   /api/farmhouses/stats:
     get:
@@ -214,6 +276,21 @@ paths:
       security:
         - bearer: []
       summary: Delete Farmhouse
+      tags: *a4
+  /api/farmhouses/{id}/availability:
+    get:
+      description: Returns array of unavailable dates for the farmhouse
+      operationId: FarmhousesController_getAvailability
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      summary: Get Farmhouse Availability
       tags: *a4
   /api/farmhouses/{id}/status:
     patch:
@@ -357,6 +434,47 @@ paths:
         - bearer: []
       summary: My Bookings
       tags: *a5
+  /api/bookings/availability:
+    get:
+      description: Get available time slots for a given date and duration
+      operationId: BookingsController_getAvailability
+      parameters:
+        - name: farmhouseId
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: date
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: type
+          required: true
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      summary: Check Availability
+      tags: *a5
+  /api/bookings/booked-dates:
+    get:
+      description: Get array of date strings (YYYY-MM-DD) that are booked or blocked
+        for a farmhouse
+      operationId: BookingsController_getBookedDates
+      parameters:
+        - name: farmhouseId
+          required: true
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      summary: Get Booked Dates
+      tags: *a5
   /api/bookings/admin:
     post:
       description: Creates a confirmed booking on behalf of an end user
@@ -386,6 +504,41 @@ paths:
         - bearer: []
       summary: Download Invoice
       tags: *a5
+  /api/bookings/save:
+    post:
+      description: Saves a draft booking without requiring immediate token payment
+      operationId: BookingsController_saveBooking
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBookingDto"
+      responses:
+        "201":
+          description: ""
+      security:
+        - bearer: []
+      summary: Save Booking for Later
+      tags: *a5
+  /api/bookings/{id}/rearrange:
+    patch:
+      description: Allows Admin/Owner to move booking dates to new start & end dates
+      operationId: BookingsController_rearrangeBooking
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      security:
+        - bearer: []
+      summary: Rearrange Booking Dates
+      tags: *a5
   /api/bookings/{id}/cancel:
     patch:
       description: Mark a booking as CANCELLED
@@ -403,6 +556,28 @@ paths:
         - bearer: []
       summary: Cancel Booking
       tags: *a5
+  /api/upload:
+    post:
+      operationId: UploadController_uploadPhotos
+      parameters: []
+      responses:
+        "201":
+          description: ""
+      security:
+        - bearer: []
+      summary: Upload images to Cloudinary
+      tags: &a6
+        - Uploads
+    delete:
+      operationId: UploadController_deletePhoto
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      security:
+        - bearer: []
+      summary: Delete image from Cloudinary
+      tags: *a6
   /api/import/validate:
     post:
       operationId: ImportController_validateImport
@@ -421,7 +596,7 @@ paths:
       security:
         - bearer: []
       summary: Validate CSV Import
-      tags: &a6
+      tags: &a7
         - Import
   /api/import/execute:
     post:
@@ -441,58 +616,77 @@ paths:
       security:
         - bearer: []
       summary: Execute CSV Import
-      tags: *a6
-  /api/upload:
-    post:
-      operationId: UploadController_uploadPhotos
-      parameters: []
-      responses:
-        "201":
-          description: ""
-      security:
-        - bearer: []
-      summary: Upload images to Cloudinary
-      tags:
-        - Uploads
-  /api/farmhouses/{farmhouseId}/offers:
-    post:
-      operationId: OffersController_create
+      tags: *a7
+  /api/geo/autocomplete:
+    get:
+      description: Proxies to Photon API for search-as-you-type address suggestions.
+      operationId: GeoController_autocomplete
       parameters:
-        - name: farmhouseId
+        - name: q
           required: true
-          in: path
+          in: query
+          description: Search query
           schema:
             type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateOfferDto"
+        - name: limit
+          required: false
+          in: query
+          description: Limit results (default 5)
+          schema:
+            type: number
       responses:
-        "201":
+        "200":
           description: ""
-      security:
-        - bearer: []
-      summary: Create an offer for a farmhouse
-      tags: &a7
-        - Offers
+      summary: Address Autocomplete
+      tags: &a8
+        - Geo
+  /api/geo/directions:
     get:
-      operationId: OffersController_findAll
+      description: Proxies to OSRM API for driving directions.
+      operationId: GeoController_getDirections
       parameters:
-        - name: farmhouseId
+        - name: from
           required: true
-          in: path
+          in: query
+          description: Origin coordinates (lat,lng)
+          schema:
+            type: string
+        - name: to
+          required: true
+          in: query
+          description: Destination coordinates (lat,lng)
           schema:
             type: string
       responses:
         "200":
           description: ""
-      summary: Get all offers for a farmhouse
-      tags: *a7
-  /api/farmhouses/{farmhouseId}/offers/{id}:
-    delete:
-      operationId: OffersController_remove
+      summary: Get Directions
+      tags: *a8
+  /api/categories:
+    post:
+      operationId: CategoriesController_create
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCategoryDto"
+      responses:
+        "201":
+          description: ""
+      tags: &a9
+        - Categories
+    get:
+      operationId: CategoriesController_findAll
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      tags: *a9
+  /api/categories/{id}:
+    get:
+      operationId: CategoriesController_findOne
       parameters:
         - name: id
           required: true
@@ -502,10 +696,167 @@ paths:
       responses:
         "200":
           description: ""
-      security:
-        - bearer: []
-      summary: Delete an offer
-      tags: *a7
+      tags: *a9
+    patch:
+      operationId: CategoriesController_update
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCategoryDto"
+      responses:
+        "200":
+          description: ""
+      tags: *a9
+    delete:
+      operationId: CategoriesController_remove
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      tags: *a9
+  /api/hero-banners:
+    post:
+      operationId: HeroBannersController_create
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateHeroBannerDto"
+      responses:
+        "201":
+          description: ""
+      tags: &a10
+        - HeroBanners
+    get:
+      operationId: HeroBannersController_findAll
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      tags: *a10
+  /api/hero-banners/{id}:
+    get:
+      operationId: HeroBannersController_findOne
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      tags: *a10
+    patch:
+      operationId: HeroBannersController_update
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateHeroBannerDto"
+      responses:
+        "200":
+          description: ""
+      tags: *a10
+    delete:
+      operationId: HeroBannersController_remove
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      tags: *a10
+  /api/reviews:
+    post:
+      operationId: ReviewsController_create
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReviewDto"
+      responses:
+        "201":
+          description: ""
+      tags: &a11
+        - Reviews
+    get:
+      operationId: ReviewsController_findAll
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      tags: *a11
+  /api/reviews/{id}:
+    get:
+      operationId: ReviewsController_findOne
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      tags: *a11
+    patch:
+      operationId: ReviewsController_update
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateReviewDto"
+      responses:
+        "200":
+          description: ""
+      tags: *a11
+    delete:
+      operationId: ReviewsController_remove
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      tags: *a11
 info:
   title: StayGrid API
   description: The core backend API for the StayGrid monorepo.
@@ -571,59 +922,126 @@ components:
       properties:
         title:
           type: string
-          example: Sunset Villa
-          description: Name of the farmhouse
-        description:
-          type: string
-          example: A beautiful villa with a sunset view.
-          description: Farmhouse description
-        pricePerNight:
+        price12Hours:
           type: number
-          example: 150
-          description: Price per night in USD
+        price24Hours:
+          type: number
         capacity:
           type: number
-          example: 10
-          description: Maximum guest capacity
-        poolSize:
-          type: string
-          example: 10x20 ft
-          description: Pool dimensions
-        amenities:
-          example:
-            - WiFi
-            - BBQ
-            - Pool
-          description: List of amenities
-          type: array
-          items:
-            type: string
+        maxIncludedGuests:
+          type: number
+        extraGuestFee:
+          type: number
         photos:
-          example:
-            - https://res.cloudinary.com/..
-          description: List of photo URLs
           type: array
           items:
             type: string
-        ownerId:
+        isActive:
+          type: boolean
+        isFeatured:
+          type: boolean
+        isCoupleFriendly:
+          type: boolean
+        isPetFriendly:
+          type: boolean
+        isBestMatch:
+          type: boolean
+        isTrusted:
+          type: boolean
+        streetAddress:
           type: string
-          example: uuid-string
-          description: Owner ID (if created by System Admin for an Owner)
+        city:
+          type: string
+        state:
+          type: string
+        country:
+          type: string
+        postalCode:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
         contactNumbers:
-          example:
-            - "Manager: +919876543210"
-          description: List of contact numbers
           type: array
           items:
             type: string
         tokenAmount:
           type: number
-          example: 2000
-          description: Fixed token deposit amount required to book
+        isWheelchairAccessible:
+          type: boolean
+        hasPool:
+          type: boolean
+        poolType:
+          type: string
+        poolSize:
+          type: string
+        babyPoolSize:
+          type: string
+        hasTurf:
+          type: boolean
+        hasRainDance:
+          type: boolean
+        hasPlayArea:
+          type: boolean
+        hasGardenArea:
+          type: boolean
+        hasGazebo:
+          type: boolean
+        hasCelebrationArea:
+          type: boolean
+        roomCount:
+          type: number
+        acRoomCount:
+          type: number
+        nonAcRoomCount:
+          type: number
+        hallCount:
+          type: number
+        singleBedCount:
+          type: number
+        doubleBedCount:
+          type: number
+        extraMattressCount:
+          type: number
+        balconyCount:
+          type: number
+        hasKitchen:
+          type: boolean
+        hasFridge:
+          type: boolean
+        hasRoWater:
+          type: boolean
+        hasBbq:
+          type: boolean
+        hasGas:
+          type: boolean
+        gasCharge:
+          type: number
+        hasCarom:
+          type: boolean
+        hasUno:
+          type: boolean
+        hasTeenPatti:
+          type: boolean
+        hasChess:
+          type: boolean
+        has8BallPool:
+          type: boolean
+        hasTv:
+          type: boolean
+        hasSpeakers:
+          type: boolean
+        hasMicrophone:
+          type: boolean
+        hasWifi:
+          type: boolean
+        ownerId:
+          type: string
       required:
         - title
-        - description
-        - pricePerNight
+        - price12Hours
+        - price24Hours
         - capacity
     CreateBookingDto:
       type: object
@@ -648,6 +1066,10 @@ components:
           type: string
           example: farmhouse-uuid
           description: ID of the farmhouse
+        notes:
+          type: string
+          example: Late check-in expected
+          description: Additional notes or requests
       required:
         - checkIn
         - checkOut
@@ -670,19 +1092,21 @@ components:
         - razorpayPaymentId
         - razorpayOrderId
         - razorpaySignature
-    CreateOfferDto:
+    CreateCategoryDto:
       type: object
-      properties:
-        title:
-          type: string
-          example: Half-Day Package
-        description:
-          type: string
-          example: Book from 5 AM to 5 PM
-        price:
-          type: number
-          example: 5000
-      required:
-        - title
-        - description
-        - price
+      properties: {}
+    UpdateCategoryDto:
+      type: object
+      properties: {}
+    CreateHeroBannerDto:
+      type: object
+      properties: {}
+    UpdateHeroBannerDto:
+      type: object
+      properties: {}
+    CreateReviewDto:
+      type: object
+      properties: {}
+    UpdateReviewDto:
+      type: object
+      properties: {}

@@ -24,10 +24,6 @@ export class RolesGuard implements CanActivate {
       context.getClass(),
     ]);
 
-    if (!requiredRoles) {
-      return true;
-    }
-
     const request = context
       .switchToHttp()
       .getRequest<Request & { user?: any }>();
@@ -47,6 +43,7 @@ export class RolesGuard implements CanActivate {
     });
 
     if (!session || !session.user) {
+      // If no roles are required, the guard is just for authentication
       throw new UnauthorizedException('Authentication required');
     }
 
@@ -60,18 +57,19 @@ export class RolesGuard implements CanActivate {
       throw new UnauthorizedException('User not found in database');
     }
 
-    const userRole = dbUser.role;
-    const hasRole = requiredRoles.includes(userRole);
-
-    if (!hasRole) {
-      throw new ForbiddenException('Insufficient permissions');
-    }
-
     // Attach role and full user to request for convenience in controllers
     (request as any).user = {
       ...session.user,
       role: dbUser.role,
     };
+
+    // If specific roles are required, check them
+    if (requiredRoles && requiredRoles.length > 0) {
+      const hasRole = requiredRoles.includes(dbUser.role);
+      if (!hasRole) {
+        throw new ForbiddenException('Insufficient permissions');
+      }
+    }
 
     return true;
   }

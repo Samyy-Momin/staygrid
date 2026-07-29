@@ -8,6 +8,7 @@ import {
   Param,
   Res,
   Patch,
+  Query,
 } from '@nestjs/common';
 import { BookingsService } from './bookings.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
@@ -61,6 +62,28 @@ export class BookingsController {
     return this.bookingsService.findByUser(req.user.id);
   }
 
+  @Get('availability')
+  @ApiOperation({
+    summary: 'Check Availability',
+    description: 'Get available time slots for a given date and duration',
+  })
+  async getAvailability(
+    @Query('farmhouseId') farmhouseId: string,
+    @Query('date') date: string,
+    @Query('type') type: '12H' | '24H'
+  ) {
+    return this.bookingsService.getAvailability(farmhouseId, date, type);
+  }
+
+  @Get('booked-dates')
+  @ApiOperation({
+    summary: 'Get Booked Dates',
+    description: 'Get array of date strings (YYYY-MM-DD) that are booked or blocked for a farmhouse',
+  })
+  async getBookedDates(@Query('farmhouseId') farmhouseId: string) {
+    return this.bookingsService.getBookedDates(farmhouseId);
+  }
+
   @Get()
   @UseGuards(RolesGuard)
   @Roles(Role.ADMIN, Role.OWNER)
@@ -105,6 +128,35 @@ export class BookingsController {
     @Res() res: any,
   ) {
     return this.bookingsService.generateInvoicePdf(id, res);
+  }
+
+  @Post('save')
+  @UseGuards(RolesGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Save Booking for Later',
+    description: 'Saves a draft booking without requiring immediate token payment',
+  })
+  async saveBooking(
+    @Req() req: AuthenticatedRequest,
+    @Body() createBookingDto: CreateBookingDto,
+  ) {
+    return this.bookingsService.saveBooking(createBookingDto, req.user.id);
+  }
+
+  @Patch(':id/rearrange')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.OWNER)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Rearrange Booking Dates',
+    description: 'Allows Admin/Owner to move booking dates to new start & end dates',
+  })
+  async rearrangeBooking(
+    @Param('id') id: string,
+    @Body() body: { checkIn: string; checkOut: string },
+  ) {
+    return this.bookingsService.rearrangeBooking(id, body.checkIn, body.checkOut);
   }
 
   @Patch(':id/cancel')

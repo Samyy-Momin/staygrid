@@ -103,14 +103,76 @@ export class ImportService {
         await this.prisma.farmhouse.create({
           data: {
             title: row.farmhouse_title,
-            description:
-              row.farmhouse_description || 'No description provided.',
-            pricePerNight: Number(row.farmhouse_pricePerNight) || 0,
-            capacity: Number(row.farmhouse_capacity) || 2,
-            poolSize: row.farmhouse_poolSize || null,
-            amenities: row.farmhouse_amenities
-              ? row.farmhouse_amenities.split(',').map((s: string) => s.trim())
-              : [],
+            price12Hours: Number(row.price12Hours) || Number(row.farmhouse_pricePerNight) || 0,
+            price24Hours: Number(row.price24Hours) || (Number(row.farmhouse_pricePerNight) * 1.5) || 0,
+            capacity: Number(row.capacity) || Number(row.farmhouse_capacity) || 2,
+            tokenAmount: Number(row.tokenAmount) || 2000,
+            
+            // Booleans / Checkboxes
+            isActive: row.isActive !== undefined ? Boolean(row.isActive) : true,
+            isFeatured: Boolean(row.isFeatured),
+            isCoupleFriendly: Boolean(row.isCoupleFriendly),
+            isPetFriendly: Boolean(row.isPetFriendly),
+            isWheelchairAccessible: Boolean(row.isWheelchairAccessible),
+            
+            // Location
+            streetAddress: row.streetAddress || null,
+            city: row.city || null,
+            state: row.state || null,
+            country: row.country || "India",
+            postalCode: row.postalCode || null,
+            latitude: row.latitude ? Number(row.latitude) : null,
+            longitude: row.longitude ? Number(row.longitude) : null,
+            
+            // Contacts & Photos
+            contactNumbers: Array.isArray(row.contactNumbers) ? row.contactNumbers : [],
+            photos: Array.isArray(row.photos) ? row.photos : [],
+            
+            // Outdoor
+            hasPool: Boolean(row.hasPool),
+            poolType: row.poolType || null,
+            poolSize: row.poolSize || row.farmhouse_poolSize || null,
+            babyPoolSize: row.babyPoolSize || null,
+            hasTurf: Boolean(row.hasTurf),
+            hasRainDance: Boolean(row.hasRainDance),
+            hasPlayArea: Boolean(row.hasPlayArea),
+            hasGardenArea: Boolean(row.hasGardenArea),
+            hasGazebo: Boolean(row.hasGazebo),
+            hasCelebrationArea: Boolean(row.hasCelebrationArea),
+
+            // Indoor (Rooms)
+            roomCount: Number(row.roomCount) || 1,
+            acRoomCount: Number(row.acRoomCount) || 0,
+            nonAcRoomCount: Number(row.nonAcRoomCount) || 0,
+            hallCount: Number(row.hallCount) || 0,
+            
+            // Beds
+            singleBedCount: Number(row.singleBedCount) || 0,
+            doubleBedCount: Number(row.doubleBedCount) || 0,
+            extraMattressCount: Number(row.extraMattressCount) || 0,
+            balconyCount: Number(row.balconyCount) || 0,
+            
+            // Kitchen
+            hasKitchen: Boolean(row.hasKitchen),
+            hasFridge: Boolean(row.hasFridge),
+            hasRoWater: Boolean(row.hasRoWater),
+            hasBbq: Boolean(row.hasBbq),
+            hasGas: Boolean(row.hasGas),
+            gasCharge: row.gasCharge ? Number(row.gasCharge) : null,
+            
+            // Indoor Games
+            hasCarom: Boolean(row.hasCarom),
+            hasUno: Boolean(row.hasUno),
+            hasTeenPatti: Boolean(row.hasTeenPatti),
+            hasChess: Boolean(row.hasChess),
+            has8BallPool: Boolean(row.has8BallPool),
+            
+            // Electronics
+            hasTv: Boolean(row.hasTv),
+            hasSpeakers: Boolean(row.hasSpeakers),
+            hasMicrophone: Boolean(row.hasMicrophone),
+            hasWifi: Boolean(row.hasWifi),
+
             ownerId: ownerId,
           },
         });
