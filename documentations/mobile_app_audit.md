@@ -66,8 +66,11 @@ The mobile app relies on the following backend services hosted at `API_URL`.
 - `GET /api/bookings/check-availability`: Validates if a farmhouse is available for the requested time slot.
 
 ### 3. Authentication (`/api/auth`)
-- `POST /api/auth/send-otp`: Sends a login OTP via Twilio WhatsApp to the user's mobile number.
-- `POST /api/auth/verify-otp`: Verifies the OTP and returns a JWT access token.
+- `POST /api/auth/email-otp/send-verification-otp`: Sends a sign-in code to the user's email.
+- `POST /api/auth/sign-in/email-otp`: Verifies the email code and creates a session.
+- `POST /api/notifications/push-token`: Registers the signed-in mobile device for push notifications.
+- Configure `EXPO_PUBLIC_EAS_PROJECT_ID` and the required APNs/FCM credentials for native builds so Expo can issue and deliver project-scoped push tokens.
+- `GET /api/notifications/me`: Lists recent in-app notifications.
 - `GET /api/auth/me`: Returns the current user's profile.
 
 ### 4. Categories & Banners (`/api/categories`, `/api/hero-banners`)

@@ -113,12 +113,6 @@ export class CreateFarmhouseDto {
 
   @ApiProperty({ required: false })
   @IsOptional()
-  @IsNumber()
-  @Min(0)
-  tokenAmount?: number;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
   @IsBoolean()
   isWheelchairAccessible?: boolean;
 
@@ -223,6 +217,18 @@ export class CreateFarmhouseDto {
   @Min(0)
   balconyCount?: number;
 
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  sofaCount?: number;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  terraceCount?: number;
+
   // Kitchen
   @ApiProperty({ required: false })
   @IsOptional()
@@ -263,22 +269,22 @@ export class CreateFarmhouseDto {
   @ApiProperty({ required: false })
   @IsOptional()
   @IsBoolean()
-  hasUno?: boolean;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsBoolean()
-  hasTeenPatti?: boolean;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsBoolean()
   hasChess?: boolean;
 
   @ApiProperty({ required: false })
   @IsOptional()
   @IsBoolean()
   has8BallPool?: boolean;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsBoolean()
+  hasCricket?: boolean;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsBoolean()
+  hasBadminton?: boolean;
 
   // Electronics
   @ApiProperty({ required: false })
@@ -305,4 +311,16 @@ export class CreateFarmhouseDto {
   @IsOptional()
   @IsString()
   ownerId?: string;
+
+  // Custom amenities & host
+  @ApiProperty({ required: false, type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  customAmenities?: string[];
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  hostName?: string;
 }

@@ -77,7 +77,9 @@ export class FarmhousesController {
     @Query('hasPool') hasPool?: string,
     @Query('hasTurf') hasTurf?: string,
     @Query('isPetFriendly') isPetFriendly?: string,
-    @Query('isCoupleFriendly') isCoupleFriendly?: string
+    @Query('isCoupleFriendly') isCoupleFriendly?: string,
+    @Query('city') city?: string,
+    @Query('sortBy') sortBy?: string
   ) {
     const pageNum = page ? parseInt(page, 10) : 1;
     const limitNum = limit ? parseInt(limit, 10) : 20;
@@ -87,11 +89,21 @@ export class FarmhousesController {
     if (hasTurf === 'true') filters.hasTurf = true;
     if (isPetFriendly === 'true') filters.isPetFriendly = true;
     if (isCoupleFriendly === 'true') filters.isCoupleFriendly = true;
+    if (city && city.trim().length > 0) filters.city = city.trim();
 
     if (req.user && req.user.role === Role.OWNER) {
       return this.farmhousesService.findByOwner(req.user.id, search, pageNum, limitNum);
     }
-    return this.farmhousesService.findAll(search, pageNum, limitNum, filters);
+    return this.farmhousesService.findAll(search, pageNum, limitNum, filters, sortBy);
+  }
+
+  @Get('locations')
+  @ApiOperation({
+    summary: 'Get Destination Locations',
+    description: 'Get list of distinct city names and property counts',
+  })
+  async getLocations() {
+    return this.farmhousesService.getDistinctLocations();
   }
 
   @Get('stats')
@@ -107,6 +119,16 @@ export class FarmhousesController {
       return this.farmhousesService.getOwnerStats(req.user.id);
     }
     return this.farmhousesService.getStats();
+  }
+
+  @Get('cancelled-deals')
+  @Get('cancellations')
+  @ApiOperation({
+    summary: 'Get Farmhouses with Cancelled Deals',
+    description: 'Get farmhouses with recent cancelled bookings available for last-minute booking',
+  })
+  async getCancelledDeals() {
+    return this.farmhousesService.findCancelledDeals();
   }
 
   @Get(':id')
@@ -194,7 +216,7 @@ export class FarmhousesController {
         throw new UnauthorizedException("You do not own this farmhouse");
       }
     }
-    return this.farmhousesService.blockDateRange(id, startDate, endDate, note);
+    return this.farmhousesService.blockDateRange(id, startDate, endDate, note, req.user.role);
   }
 
   @Get(':id/blocked-dates')
@@ -217,12 +239,39 @@ export class FarmhousesController {
       // Let's get the blocked date via prisma directly or in service.
       const blockedDate = await this.farmhousesService.getBlockedDateById(id);
       if (blockedDate) {
-         const farmhouse = await this.farmhousesService.findOne(blockedDate.farmhouseId);
-         if (farmhouse.ownerId !== req.user.id) {
-           throw new UnauthorizedException("You do not own this farmhouse");
-         }
+        const farmhouse = await this.farmhousesService.findOne(blockedDate.farmhouseId);
+        if (farmhouse.ownerId !== req.user.id) {
+          throw new UnauthorizedException("You do not own this farmhouse");
+        }
       }
     }
     return this.farmhousesService.removeBlockedDateRange(id);
+  }
+
+  @Get(':id/pricing-overrides')
+  @ApiOperation({ summary: 'Get pricing overrides for farmhouse' })
+  async getPricingOverrides(@Param('id') id: string) {
+    return this.farmhousesService.getPricingOverrides(id);
+  }
+
+  @Post(':id/pricing-overrides')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.OWNER)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Create or update pricing override' })
+  async upsertPricingOverride(
+    @Param('id') id: string,
+    @Body() body: { date: string; price12Hours?: number; price24Hours?: number; label?: string; type: string }
+  ) {
+    return this.farmhousesService.upsertPricingOverride(id, body);
+  }
+
+  @Delete('pricing-overrides/:overrideId')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.OWNER)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Delete pricing override' })
+  async deletePricingOverride(@Param('overrideId') overrideId: string) {
+    return this.farmhousesService.deletePricingOverride(overrideId);
   }
 }

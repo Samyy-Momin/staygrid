@@ -1,15 +1,16 @@
 import { View, Text, ScrollView, TouchableOpacity, Image, ActivityIndicator, Linking, Platform, Modal, Pressable, StyleSheet } from "react-native";
 import { WebView } from "react-native-webview";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Calendar as RNCalendar, DateData } from "react-native-calendars";
 import { useFavoriteStore } from "../../lib/store";
 import {
-  MapPin, Star, Heart, Users, Bed, Wifi, Coffee, Car, Droplet, Tv, Check, Flame, Map as MapIcon, Calendar, ArrowLeft, ExternalLink, Navigation, CheckCircle2, ChevronLeft, ChevronRight, Droplets, Speaker, Mic, Dice5, Phone, Accessibility, Gamepad2, Sparkles, Trees, Target, Grid, Circle, X, Sun, Moon, ShieldCheck
+  MapPin, Star, Heart, Users, Bed, Wifi, Coffee, Car, Droplet, Tv, Check, Flame, Map as MapIcon, Calendar, ArrowLeft, ExternalLink, Navigation, CheckCircle2, ChevronLeft, ChevronRight, Droplets, Speaker, Mic, Dice5, Phone, Accessibility, Gamepad2, Sparkles, Trees, Target, Grid, Circle, X, Sun, Moon, ShieldCheck, Play, Film
 } from "lucide-react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { getApiUrl, getFullImageUrl } from "../../lib/config";
 import { useThemeColors } from "../../lib/theme-colors";
+import { mixpanel } from "../../lib/mixpanel";
 
 import { parseISO, format, addDays, eachDayOfInterval, isBefore } from 'date-fns';
 
@@ -20,6 +21,14 @@ const getTodayStr = (): string => {
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
   const dayStr = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${dayStr}`;
+};
+
+const formatUtcDateString = (date: Date): string => {
+  const utcDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const year = utcDate.getUTCFullYear();
+  const month = String(utcDate.getUTCMonth() + 1).padStart(2, '0');
+  const dayStr = String(utcDate.getUTCDate()).padStart(2, '0');
   return `${year}-${month}-${dayStr}`;
 };
 
@@ -45,9 +54,38 @@ export default function FarmhouseDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [farmhouse, setFarmhouse] = useState<any>(null);
+  const [nearbyFarmhouses, setNearbyFarmhouses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showCalendar, setShowCalendar] = useState(false);
+
+  const fetchFarmhouse = useCallback(async () => {
+    if (!id) return;
+    try {
+      const res = await fetch(`${API_URL}/api/farmhouses/${id}`);
+      if (!res.ok) throw new Error("Failed to fetch");
+      const data = await res.json();
+      setFarmhouse(data);
+
+      const nearbyRes = await fetch(`${API_URL}/api/farmhouses?limit=10`).catch(() => null);
+      if (nearbyRes?.ok) {
+        const nearbyData = await nearbyRes.json();
+        const list = Array.isArray(nearbyData.data) ? nearbyData.data : (Array.isArray(nearbyData) ? nearbyData : []);
+        setNearbyFarmhouses(list.filter((f: any) => f.id !== id));
+      }
+    } catch (err) {
+      setError("Could not load farmhouse details.");
+    } finally {
+      setLoading(false);
+    }
+  }, [id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchFarmhouse();
+    }, [fetchFarmhouse])
+  );
+
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4>(1);
   const [bookingType, setBookingType] = useState<'12H' | '24H' | 'CUSTOM' | null>(null);
   const [startDate, setStartDate] = useState<string | null>(null);
@@ -90,6 +128,32 @@ export default function FarmhouseDetailScreen() {
         if (!res.ok) throw new Error("Failed to fetch");
         const data = await res.json();
         setFarmhouse(data);
+
+        // Mixpanel Event Tracking
+        mixpanel.track("farmhouse_viewed", {
+          farmhouse_id: id,
+          farmhouse_title: data?.title,
+          city: data?.city,
+          state: data?.state,
+          price_12h: data?.price12Hours,
+          price_24h: data?.price24Hours,
+          has_pool: data?.hasPool,
+          has_turf: data?.hasTurf,
+        });
+
+        // Silent Event Logging for Marketing Analytics
+        fetch(`${API_URL}/api/admin/marketing/event`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ farmhouseId: id, eventType: "VIEW_FARMHOUSE" }),
+        }).catch(() => null);
+
+        const nearbyRes = await fetch(`${API_URL}/api/farmhouses?limit=10`).catch(() => null);
+        if (nearbyRes?.ok) {
+          const nearbyData = await nearbyRes.json();
+          const list = Array.isArray(nearbyData.data) ? nearbyData.data : (Array.isArray(nearbyData) ? nearbyData : []);
+          setNearbyFarmhouses(list.filter((f: any) => f.id !== id));
+        }
       } catch (err) {
         setError("Could not load farmhouse details.");
       } finally {
@@ -145,14 +209,20 @@ export default function FarmhouseDetailScreen() {
     if (bookingType === '12H') {
       if (slot.includes('10:00 PM') || slot.includes('22:00')) {
         setEndDate(addDaysToDateStr(startDate, 1));
-        setCheckOutTime('10:00 AM');
+        setCheckOutTime('9:00 AM'); // 11 Hours Stay (10 PM to 9 AM)
       } else {
         setEndDate(startDate);
-        setCheckOutTime('10:00 PM');
+        setCheckOutTime('9:00 PM'); // 11 Hours Stay (10 AM to 9 PM)
       }
     } else if (bookingType === '24H') {
       setEndDate(addDaysToDateStr(startDate, 1));
-      setCheckOutTime(slot);
+      if (slot.includes('10:00 AM')) {
+        setCheckOutTime('9:00 AM'); // 23 Hours Stay (10 AM to 9 AM next day)
+      } else if (slot.includes('10:00 PM')) {
+        setCheckOutTime('9:00 PM'); // 23 Hours Stay (10 PM to 9 PM next day)
+      } else {
+        setCheckOutTime(slot);
+      }
     }
     setWizardStep(4);
   };
@@ -293,19 +363,19 @@ export default function FarmhouseDetailScreen() {
               {farmhouse.title}
             </Text>
 
-            {/* Badges Row */}
+            {/* Badges Row - Unified sleek grey borders */}
             <View className="flex-row items-center flex-wrap gap-2 mb-3">
-              <View className="flex-row items-center bg-surface dark:bg-[#1C1C1E] px-3 py-1.5 rounded-full border border-warning/40">
+              <View className="flex-row items-center bg-surface dark:bg-surface px-3 py-1.5 rounded-full border border-border dark:border-border">
                 <Star size={12} color="#F59E0B" fill="#F59E0B" style={{ marginRight: 4 }} />
-                <Text className="text-text-primary dark:text-white font-[Inter_700Bold] text-xs">4.9 <Text className="text-text-muted font-[Inter_400Regular]">(210)</Text></Text>
+                <Text className="text-text-primary dark:text-surface font-[Inter_700Bold] text-xs">4.9 <Text className="text-text-muted font-[Inter_400Regular]">(210)</Text></Text>
               </View>
-              <View className="flex-row items-center bg-surface dark:bg-[#1C1C1E] px-3 py-1.5 rounded-full border border-border dark:border-white/10">
+              <View className="flex-row items-center bg-surface dark:bg-surface px-3 py-1.5 rounded-full border border-border dark:border-border">
                 <Users size={12} color="#9CA3AF" style={{ marginRight: 4 }} />
-                <Text className="text-text-primary dark:text-white font-[Inter_600SemiBold] text-xs">Up to {farmhouse.capacity || 30}</Text>
+                <Text className="text-text-primary dark:text-surface font-[Inter_600SemiBold] text-xs">Up to {farmhouse.capacity || 30}</Text>
               </View>
-              <View className="flex-row items-center bg-surface dark:bg-[#1C1C1E] px-3 py-1.5 rounded-full border border-border dark:border-white/10">
+              <View className="flex-row items-center bg-surface dark:bg-surface px-3 py-1.5 rounded-full border border-border dark:border-border">
                 <ShieldCheck size={12} color="#10B981" style={{ marginRight: 4 }} />
-                <Text className="text-text-primary dark:text-white font-[Inter_600SemiBold] text-xs">Verified Host</Text>
+                <Text className="text-text-primary dark:text-surface font-[Inter_600SemiBold] text-xs">Verified Host</Text>
               </View>
             </View>
           </View>
@@ -313,108 +383,149 @@ export default function FarmhouseDetailScreen() {
           {/* Core Bento Grid - Row 1 (Stats & Main Price) */}
           <View className="flex-row flex-wrap justify-between mb-3">
             {/* Pricing Bento Block */}
-            <View className="w-full bg-surface dark:bg-surface p-4.5 rounded-[24px] mb-3 border border-border dark:border-border">
-              <Text className="text-text-primary dark:text-text-muted font-[Inter_700Bold] text-sm mb-3">Pricing Options</Text>
-              <View className="flex-row justify-between items-center mb-2.5">
-                <Text className="text-text-muted dark:text-text-muted font-[Inter_500Medium]">12 Hours Stay</Text>
-                <Text className="font-[Inter_800ExtraBold] text-text-primary dark:text-text-primary text-lg">₹{formatPrice(farmhouse.price12Hours)}</Text>
+            <View className="w-full bg-surface dark:bg-surface p-4 rounded-[24px] mb-3 border border-border dark:border-border shadow-sm">
+              <View className="flex-row justify-between items-center mb-3">
+                <Text className="text-text-primary dark:text-surface font-[Inter_800ExtraBold] text-base">Pricing Options</Text>
+                <View className="bg-[#0066CC]/10 px-2.5 py-1 rounded-full border border-[#0066CC]/20">
+                  <Text className="text-[#0066CC] font-[Inter_700Bold] text-[10px] uppercase tracking-wider">Best Value Rates</Text>
+                </View>
               </View>
-              <View className="flex-row justify-between items-center">
-                <Text className="text-text-muted dark:text-text-muted font-[Inter_500Medium]">24 Hours Stay (Overnight)</Text>
-                <Text className="font-[Inter_800ExtraBold] text-text-primary dark:text-text-primary text-lg">₹{formatPrice(farmhouse.price24Hours)}</Text>
+              <View className="flex-row justify-between items-center py-2 border-b border-border/40 mb-2">
+                <View>
+                  <Text className="text-text-primary dark:text-surface font-[Inter_700Bold] text-sm">12 Hours Stay</Text>
+                  <Text className="text-text-muted font-[Inter_500Medium] text-xs">Day / Night Slot (10 AM–9 PM or 10 PM–9 AM)</Text>
+                </View>
+                <Text className="font-[Inter_800ExtraBold] text-[#0066CC] text-lg">₹{formatPrice(farmhouse.price12Hours)}</Text>
+              </View>
+              <View className="flex-row justify-between items-center py-2">
+                <View>
+                  <Text className="text-text-primary dark:text-surface font-[Inter_700Bold] text-sm">24 Hours Stay (Overnight)</Text>
+                  <Text className="text-text-muted font-[Inter_500Medium] text-xs">Full Day & Night Access</Text>
+                </View>
+                <Text className="font-[Inter_800ExtraBold] text-[#10B981] text-lg">₹{formatPrice(farmhouse.price24Hours)}</Text>
               </View>
             </View>
 
             {/* Quick Stats Bento Blocks - Small squares */}
             <View className="w-[48%] bg-surface dark:bg-surface p-4 rounded-[24px] mb-4 items-center justify-center border border-border dark:border-border">
-              <View style={{ marginBottom: 8 }}>
-                <Users size={24} color="#0066CC" />
+              <View style={{ marginBottom: 6 }}>
+                <Users size={22} color="#0066CC" />
               </View>
-              <Text className="font-[Inter_700Bold] text-text-primary dark:text-surface text-lg">{farmhouse.capacity || 0}</Text>
-              <Text className="text-[11px] font-[Inter_500Medium] text-text-muted uppercase tracking-wide mt-1">Guests Max</Text>
+              <Text className="font-[Inter_800ExtraBold] text-text-primary dark:text-surface text-lg">{farmhouse.capacity || 0}</Text>
+              <Text className="text-[10px] font-[Inter_700Bold] text-text-muted uppercase tracking-wider mt-0.5">Avg Guests</Text>
             </View>
 
             <View className="w-[48%] bg-surface dark:bg-surface p-4 rounded-[24px] mb-4 items-center justify-center border border-border dark:border-border">
-              <View style={{ marginBottom: 8 }}>
-                <Bed size={24} color="#0066CC" />
+              <View style={{ marginBottom: 6 }}>
+                <Bed size={22} color="#0066CC" />
               </View>
-              <Text className="font-[Inter_700Bold] text-text-primary dark:text-surface text-lg">{farmhouse.roomCount || 0}</Text>
-              <Text className="text-[11px] font-[Inter_500Medium] text-text-muted uppercase tracking-wide mt-1">Bedrooms</Text>
+              <Text className="font-[Inter_800ExtraBold] text-text-primary dark:text-surface text-lg">{farmhouse.roomCount || 0}</Text>
+              <Text className="text-[10px] font-[Inter_700Bold] text-text-muted uppercase tracking-wider mt-0.5">Bedrooms</Text>
             </View>
           </View>
 
-          {/* Outdoor Amenities Bento Box */}
-          <Text className="text-xl font-[Inter_800ExtraBold] text-text-primary dark:text-surface mb-4 mt-2">Outdoor & Nature</Text>
-          <View className="flex-row flex-wrap mb-6 gap-3">
-            {farmhouse.hasPool && (
-              <View className="w-full bg-surface dark:bg-surface p-5 rounded-[24px] border border-border dark:border-border mb-3">
-                <View className="flex-row items-center mb-3">
-                  <View className="w-10 h-10 bg-surface dark:bg-surface rounded-full items-center justify-center mr-3">
+          {/* 🎬 Video Tour & Host Reels Section (Private & Instagram Videos) */}
+          {Array.isArray(farmhouse.exploreMedia) && farmhouse.exploreMedia.length > 0 && (
+            <View className="mb-6">
+              <View className="flex-row items-center justify-between mb-3">
+                <View className="flex-row items-center gap-2">
+                  <Film size={18} color="#0066CC" />
+                  <Text className="text-xl font-[Inter_800ExtraBold] text-text-primary dark:text-surface">
+                    Video Tour & Host Reels
+                  </Text>
+                </View>
+                <View className="bg-[#0066CC]/10 px-2.5 py-1 rounded-full border border-[#0066CC]/20">
+                  <Text className="text-[#0066CC] font-[Inter_700Bold] text-[10px] uppercase">Official Tour</Text>
+                </View>
+              </View>
+
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12 }}>
+                {farmhouse.exploreMedia.map((media: any) => (
+                  <TouchableOpacity
+                    key={media.id}
+                    onPress={() => router.push("/explore")}
+                    activeOpacity={0.9}
+                    className="w-32 h-52 bg-black rounded-2xl overflow-hidden relative border border-border/40 shadow-sm"
+                  >
+                    <Image source={{ uri: media.thumbnailUrl || media.mediaUrl }} className="w-full h-full object-cover" />
+                    <View className="absolute top-2 left-2 bg-black/60 p-1.5 rounded-full border border-white/20">
+                      <Play size={10} color="#FFFFFF" fill="#FFFFFF" />
+                    </View>
+                    <View className="absolute bottom-0 inset-x-0 p-2 bg-gradient-to-t from-black/90 to-transparent">
+                      <Text className="text-[10px] font-bold text-white" numberOfLines={2}>
+                        {media.caption || "Watch Video Tour"}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
+          {/* Outdoor & Features Section (Strictly 2 Rows Layout) */}
+          <Text className="text-xl font-[Inter_800ExtraBold] text-text-primary dark:text-surface mb-3">Outdoor & Features</Text>
+          
+          {/* Row 1: Swimming Pool */}
+          {farmhouse.hasPool ? (
+            <View className="w-full bg-surface dark:bg-surface p-4 rounded-[24px] border border-border dark:border-border mb-3 shadow-sm">
+              <View className="flex-row items-center justify-between">
+                <View className="flex-row items-center">
+                  <View className="w-10 h-10 bg-[#0066CC]/15 rounded-full items-center justify-center mr-3">
                     <Droplets size={20} color="#0066CC" />
                   </View>
                   <View>
-                    <Text className="font-[Inter_700Bold] text-text-primary dark:text-text-primary text-base">Swimming Pool</Text>
-                    <Text className="font-[Inter_500Medium] text-text-muted dark:text-text-muted text-xs">Size: {farmhouse.poolSize || 'N/A'} ft</Text>
+                    <Text className="font-[Inter_700Bold] text-text-primary dark:text-surface text-base">Swimming Pool</Text>
+                    <Text className="font-[Inter_500Medium] text-text-muted text-xs">Size: {farmhouse.poolSize || '20x15'} ft</Text>
                   </View>
                 </View>
                 {farmhouse.poolType && farmhouse.poolType !== 'NONE' && (
-                  <View className="bg-surface/60 dark:bg-surface p-3 rounded-xl mt-2">
-                    <Text className="font-[Inter_600SemiBold] text-text-primary dark:text-text-muted text-xs">Baby Pool ({farmhouse.poolType === 'ATTACHED' ? 'Attached' : 'Separate'})</Text>
-                    <Text className="font-[Inter_500Medium] text-text-muted dark:text-text-muted text-[11px] mt-0.5">Size: {farmhouse.babyPoolSize || 'N/A'} ft</Text>
+                  <View className="bg-[#0066CC]/10 px-3 py-1 rounded-full border border-[#0066CC]/20">
+                    <Text className="font-[Inter_700Bold] text-[#0066CC] text-[11px]">Baby Pool</Text>
                   </View>
                 )}
               </View>
-            )}
+            </View>
+          ) : null}
 
-            {/* Full-width descriptive rows for outdoor amenities */}
+          {/* Row 2: All Outdoor Features Pills in a single horizontal scroll row */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-6" contentContainerStyle={{ paddingRight: 16 }}>
             {farmhouse.hasTurf && (
-              <View className="w-full bg-surface dark:bg-surface p-4 rounded-2xl flex-row items-center mb-3 border border-border dark:border-border">
-                <View className="w-10 h-10 bg-success dark:bg-surface rounded-full items-center justify-center mr-3">
-                  <Check size={20} color="#10B981" />
-                </View>
-                <View className="flex-1">
-                  <Text className="font-[Inter_700Bold] text-text-primary dark:text-text-primary text-base">Turf</Text>
-                  <Text className="font-[Inter_500Medium] text-text-muted dark:text-text-muted text-xs mt-0.5">Dedicated sports turf area</Text>
-                </View>
+              <View className="bg-surface dark:bg-surface px-4 py-3 rounded-2xl flex-row items-center mr-3 border border-border dark:border-border">
+                <Check size={16} color="#10B981" style={{ marginRight: 6 }} />
+                <Text className="font-[Inter_700Bold] text-text-primary dark:text-surface text-xs">Turf Ground</Text>
               </View>
             )}
-
             {farmhouse.hasRainDance && (
-              <View className="w-full bg-surface dark:bg-surface p-4 rounded-2xl flex-row items-center mb-3 border border-border dark:border-border">
-                <View className="w-10 h-10 bg-surface dark:bg-surface rounded-full items-center justify-center mr-3">
-                  <Droplet size={20} color="#0066CC" />
-                </View>
-                <View className="flex-1">
-                  <Text className="font-[Inter_700Bold] text-text-primary dark:text-text-primary text-base">Rain Dance</Text>
-                  <Text className="font-[Inter_500Medium] text-text-muted dark:text-text-muted text-xs mt-0.5">Music and water setup</Text>
-                </View>
+              <View className="bg-surface dark:bg-surface px-4 py-3 rounded-2xl flex-row items-center mr-3 border border-border dark:border-border">
+                <Droplet size={16} color="#0066CC" style={{ marginRight: 6 }} />
+                <Text className="font-[Inter_700Bold] text-text-primary dark:text-surface text-xs">Rain Dance</Text>
               </View>
             )}
-
             {farmhouse.hasPlayArea && (
-              <View className="w-full bg-surface dark:bg-surface p-4 rounded-2xl flex-row items-center mb-3 border border-border dark:border-border">
-                <View className="w-10 h-10 bg-warning dark:bg-surface rounded-full items-center justify-center mr-3">
-                  <Sparkles size={20} color="#f59e0b" />
-                </View>
-                <View className="flex-1">
-                  <Text className="font-[Inter_700Bold] text-text-primary dark:text-text-primary text-base">Kids Play Area</Text>
-                  <Text className="font-[Inter_500Medium] text-text-muted dark:text-text-muted text-xs mt-0.5">Safe area for children</Text>
-                </View>
+              <View className="bg-surface dark:bg-surface px-4 py-3 rounded-2xl flex-row items-center mr-3 border border-border dark:border-border">
+                <Sparkles size={16} color="#F59E0B" style={{ marginRight: 6 }} />
+                <Text className="font-[Inter_700Bold] text-text-primary dark:text-surface text-xs">Kids Play Area</Text>
               </View>
             )}
-
             {farmhouse.hasGardenArea && (
-              <View className="w-full bg-surface dark:bg-surface p-4 rounded-2xl flex-row items-center mb-3 border border-border dark:border-border">
-                <View className="w-10 h-10 bg-success dark:bg-surface rounded-full items-center justify-center mr-3">
-                  <Trees size={20} color="#10B981" />
-                </View>
-                <View className="flex-1">
-                  <Text className="font-[Inter_700Bold] text-text-primary dark:text-text-primary text-base">Garden Area</Text>
-                  <Text className="font-[Inter_500Medium] text-text-muted dark:text-text-muted text-xs mt-0.5">Lush green relaxing space</Text>
-                </View>
+              <View className="bg-surface dark:bg-surface px-4 py-3 rounded-2xl flex-row items-center mr-3 border border-border dark:border-border">
+                <Trees size={16} color="#10B981" style={{ marginRight: 6 }} />
+                <Text className="font-[Inter_700Bold] text-text-primary dark:text-surface text-xs">Garden Lawn</Text>
               </View>
             )}
-          </View>
+            {farmhouse.hasCricket && (
+              <View className="bg-surface dark:bg-surface px-4 py-3 rounded-2xl flex-row items-center mr-3 border border-border dark:border-border">
+                <Check size={16} color="#10B981" style={{ marginRight: 6 }} />
+                <Text className="font-[Inter_700Bold] text-text-primary dark:text-surface text-xs">Cricket Kit</Text>
+              </View>
+            )}
+            {farmhouse.hasBadminton && (
+              <View className="bg-surface dark:bg-surface px-4 py-3 rounded-2xl flex-row items-center mr-3 border border-border dark:border-border">
+                <Check size={16} color="#10B981" style={{ marginRight: 6 }} />
+                <Text className="font-[Inter_700Bold] text-text-primary dark:text-surface text-xs">Badminton Court</Text>
+              </View>
+            )}
+          </ScrollView>
 
           {/* Indoor Details Bento Box */}
           <Text className="text-xl font-[Inter_800ExtraBold] text-text-primary dark:text-surface mb-4">Indoor Details</Text>
@@ -434,9 +545,17 @@ export default function FarmhouseDetailScreen() {
               <Text className="text-text-muted dark:text-text-muted font-[Inter_500Medium] text-sm">Double Beds</Text>
               <Text className="font-[Inter_700Bold] text-text-primary dark:text-surface text-base">{farmhouse.doubleBedCount || 0}</Text>
             </View>
-            <View className="flex-row justify-between items-center">
+            <View className="flex-row justify-between items-center mb-2">
               <Text className="text-text-muted dark:text-text-muted font-[Inter_500Medium] text-sm">Extra Mattresses</Text>
               <Text className="font-[Inter_700Bold] text-text-primary dark:text-surface text-base">{farmhouse.extraMattressCount || 0}</Text>
+            </View>
+            <View className="flex-row justify-between items-center mb-2">
+              <Text className="text-text-muted dark:text-text-muted font-[Inter_500Medium] text-sm">Sofas</Text>
+              <Text className="font-[Inter_700Bold] text-text-primary dark:text-surface text-base">{farmhouse.sofaCount || 0}</Text>
+            </View>
+            <View className="flex-row justify-between items-center">
+              <Text className="text-text-muted dark:text-text-muted font-[Inter_500Medium] text-sm">Terraces</Text>
+              <Text className="font-[Inter_700Bold] text-text-primary dark:text-surface text-base">{farmhouse.terraceCount || 0}</Text>
             </View>
           </View>
 
@@ -456,24 +575,46 @@ export default function FarmhouseDetailScreen() {
             </View>
 
             <View className="h-px bg-surface dark:bg-surface my-4" />
-            <Text className="text-text-primary dark:text-text-muted font-[Inter_700Bold] text-sm mb-3">Indoor Games</Text>
+            <Text className="text-text-primary dark:text-text-muted font-[Inter_700Bold] text-sm mb-3">Indoor & Outdoor Games</Text>
             <View className="flex-row flex-wrap gap-2">
               {farmhouse.hasCarom && <PillBadge icon={<Target size={14} color="#0066CC" />} text="Carom" />}
-              {farmhouse.hasUno && <PillBadge icon={<Dice5 size={14} color="#0066CC" />} text="UNO" />}
               {farmhouse.hasChess && <PillBadge icon={<Grid size={14} color="#0066CC" />} text="Chess" />}
               {farmhouse.has8BallPool && <PillBadge icon={<Circle size={14} color="#0066CC" />} text="8 Ball Pool" />}
-              {farmhouse.hasTeenPatti && <PillBadge icon={<Dice5 size={14} color="#0066CC" />} text="Teen Patti" />}
-              {(!farmhouse.hasCarom && !farmhouse.hasUno && !farmhouse.hasTeenPatti && !farmhouse.hasChess && !farmhouse.has8BallPool) && (
+              {farmhouse.hasCricket && <PillBadge icon={<Target size={14} color="#0066CC" />} text="Cricket Bat & Ball" />}
+              {farmhouse.hasBadminton && <PillBadge icon={<Target size={14} color="#0066CC" />} text="Badminton Set" />}
+              {(!farmhouse.hasCarom && !farmhouse.hasChess && !farmhouse.has8BallPool && !farmhouse.hasCricket && !farmhouse.hasBadminton) && (
                 <Text className="font-[Inter_500Medium] text-text-muted text-sm italic">No games listed</Text>
               )}
             </View>
+
+            {farmhouse.customAmenities && farmhouse.customAmenities.length > 0 && (
+              <>
+                <View className="h-px bg-surface dark:bg-surface my-4" />
+                <Text className="text-text-primary dark:text-text-muted font-[Inter_700Bold] text-sm mb-3">Additional Custom Amenities</Text>
+                <View className="flex-row flex-wrap gap-2">
+                  {farmhouse.customAmenities.map((amenity: string, idx: number) => (
+                    <PillBadge key={idx} icon={<Sparkles size={14} color="#10B981" />} text={amenity} />
+                  ))}
+                </View>
+              </>
+            )}
           </View>
 
           {/* Guest Reviews Section */}
-          <Text className="text-xl font-[Inter_800ExtraBold] text-text-primary dark:text-surface mb-4 mt-2">Guest Reviews</Text>
+          <View className="flex-row justify-between items-center mb-4 mt-2">
+            <Text className="text-xl font-[Inter_800ExtraBold] text-text-primary dark:text-surface">Guest Reviews</Text>
+            <TouchableOpacity
+              className="bg-[#10B981] px-4 py-2 rounded-full flex-row items-center"
+              onPress={() => router.push({ pathname: "/reviews/new", params: { farmhouseId: id } })}
+            >
+              <Star size={12} color="#FFFFFF" fill="#FFFFFF" style={{ marginRight: 4 }} />
+              <Text className="text-white font-[Inter_700Bold] text-xs">Write a Review</Text>
+            </TouchableOpacity>
+          </View>
+
           <View className="mb-8">
             <View className="flex-row items-end mb-6">
-              <Text className="text-4xl font-[Inter_800ExtraBold] text-text-primary dark:text-surface">{farmhouse.averageRating || '4.8'}</Text>
+              <Text className="text-4xl font-[Inter_800ExtraBold] text-text-primary dark:text-surface">{farmhouse.avgRating || farmhouse.averageRating || '4.8'}</Text>
               <View className="ml-3 mb-1">
                 <View className="flex-row items-center mb-0.5">
                   <Star size={14} color="#F59E0B" fill="#F59E0B" />
@@ -482,34 +623,13 @@ export default function FarmhouseDetailScreen() {
                   <Star size={14} color="#F59E0B" fill="#F59E0B" />
                   <Star size={14} color="#F59E0B" fill="#F59E0B" />
                 </View>
-                <Text className="text-text-muted dark:text-text-muted font-[Inter_500Medium] text-sm">Based on {farmhouse.reviews?.length || 0} reviews</Text>
+                <Text className="text-text-muted dark:text-text-muted font-[Inter_500Medium] text-sm">Based on {farmhouse.reviewCount || farmhouse.reviews?.length || 0} reviews</Text>
               </View>
             </View>
 
             <ScrollView horizontal showsHorizontalScrollIndicator={false} className="-mx-4 px-4 pb-2" contentContainerStyle={{ paddingRight: 32 }}>
-              <View className="w-72 bg-surface dark:bg-surface p-5 rounded-3xl border border-border dark:border-border shadow-sm mr-4">
-                <View className="flex-row justify-between items-start mb-3">
-                  <View className="flex-row items-center">
-                    <View className="w-10 h-10 rounded-full bg-surface dark:bg-surface items-center justify-center mr-3">
-                      <Text className="text-accent-primary dark:text-text-muted font-[Inter_700Bold]">S</Text>
-                    </View>
-                    <View>
-                      <Text className="font-[Inter_700Bold] text-text-primary dark:text-surface">Sanjay M.</Text>
-                      <Text className="text-xs text-text-muted">October 2023</Text>
-                    </View>
-                  </View>
-                  <View className="flex-row bg-surface dark:bg-surface px-2 py-1 rounded-full items-center">
-                    <Star size={10} color="#F59E0B" fill="#F59E0B" />
-                    <Text className="text-warning dark:text-text-muted text-[10px] font-[Inter_700Bold] ml-1">5.0</Text>
-                  </View>
-                </View>
-                <Text className="text-text-muted dark:text-text-muted text-sm leading-relaxed" numberOfLines={4}>
-                  "Amazing experience! The pool was very clean and the turf was great for our night cricket match. The caretaker was very helpful and the food arranged was delicious. Highly recommended for a group of 15-20 people."
-                </Text>
-              </View>
-
               {farmhouse.reviews && farmhouse.reviews.length > 0 ? (
-                farmhouse.reviews.slice(0, 2).map((review: any, index: number) => (
+                farmhouse.reviews.slice(0, 3).map((review: any, index: number) => (
                   <View key={index} className="w-72 bg-surface dark:bg-surface p-5 rounded-3xl border border-border dark:border-border shadow-sm mr-4">
                     <View className="flex-row justify-between items-start mb-3">
                       <View className="flex-row items-center">
@@ -534,7 +654,7 @@ export default function FarmhouseDetailScreen() {
                   </View>
                 ))
               ) : (
-                <Text className="text-text-muted font-[Inter_500Medium] p-4">No reviews yet.</Text>
+                <Text className="text-text-muted font-[Inter_500Medium] p-4">No reviews yet. Be the first to write a review!</Text>
               )}
             </ScrollView>
 
@@ -542,7 +662,7 @@ export default function FarmhouseDetailScreen() {
               className="mt-4 py-4.5 bg-surface dark:bg-surface rounded-xl items-center border border-border dark:border-border"
               onPress={() => router.push(`/reviews/${id}`)}
             >
-              <Text className="text-text-primary dark:text-surface font-[Inter_600SemiBold]">Show all {farmhouse.reviews?.length || 0} reviews</Text>
+              <Text className="text-text-primary dark:text-surface font-[Inter_600SemiBold]">Show all {farmhouse.reviewCount || farmhouse.reviews?.length || 0} reviews</Text>
             </TouchableOpacity>
           </View>
 
@@ -551,7 +671,7 @@ export default function FarmhouseDetailScreen() {
           <View className="mb-6 space-y-3">
             <View className="bg-surface dark:bg-surface px-6 py-4 rounded-[20px] flex-row justify-between items-center border border-border dark:border-border mb-3">
               <Text className="text-text-muted dark:text-text-muted font-[Inter_500Medium] flex-1">Token Booking Amount</Text>
-              <Text className="font-[Inter_800ExtraBold] text-text-primary dark:text-surface text-lg ml-4">₹{formatPrice(farmhouse.tokenAmount)}</Text>
+              <Text className="font-[Inter_800ExtraBold] text-text-primary dark:text-surface text-lg ml-4">50% Paid Now</Text>
             </View>
 
             {farmhouse.isWheelchairAccessible && (
@@ -565,7 +685,10 @@ export default function FarmhouseDetailScreen() {
             )}
 
             <View className="bg-surface dark:bg-surface px-6 py-4 rounded-[20px] border border-border dark:border-border mb-3">
-              <Text className="text-text-muted dark:text-text-muted font-[Inter_500Medium] mb-3">Host Contact Numbers</Text>
+              <Text className="text-text-muted dark:text-text-muted font-[Inter_500Medium] mb-1">Property Host & Contact</Text>
+              {farmhouse.hostName ? (
+                <Text className="font-[Inter_700Bold] text-accent-primary text-sm mb-3">Host: {farmhouse.hostName}</Text>
+              ) : null}
               <View className="space-y-2">
                 {(farmhouse.contactNumbers || []).map((num: string, idx: number) => (
                   <View key={idx} className="bg-surface dark:bg-surface px-4 py-4 rounded-xl flex-row items-center shadow-sm border border-border dark:border-border mb-2">
@@ -576,7 +699,7 @@ export default function FarmhouseDetailScreen() {
                   </View>
                 ))}
                 {(!farmhouse.contactNumbers || farmhouse.contactNumbers.length === 0) && (
-                  <Text className="text-text-muted font-[Inter_400Regular] italic">None provided</Text>
+                  <Text className="text-text-muted font-[Inter_400Regular] italic">No public phone numbers provided</Text>
                 )}
               </View>
             </View>
@@ -627,6 +750,51 @@ export default function FarmhouseDetailScreen() {
             </View>
           </View>
 
+          {/* More Stays Nearby / Best Farmhouses (Square Cards Carousel) */}
+          {nearbyFarmhouses.length > 0 && (
+            <View className="mt-6 mb-24">
+              <View className="flex-row justify-between items-center mb-3">
+                <Text className="text-xl font-[Inter_800ExtraBold] text-text-primary dark:text-surface">
+                  More Stays Nearby
+                </Text>
+                <TouchableOpacity onPress={() => router.push("/farmhouse/all")}>
+                  <Text className="text-[#0066CC] font-[Inter_700Bold] text-xs">See All</Text>
+                </TouchableOpacity>
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} className="-mx-4 px-4" contentContainerStyle={{ paddingRight: 32 }}>
+                {nearbyFarmhouses.map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    onPress={() => router.push(`/farmhouse/${item.id}`)}
+                    className="mr-4 bg-surface dark:bg-border/40 rounded-3xl overflow-hidden border border-border shadow-sm w-48"
+                  >
+                    <View className="w-48 h-48 relative">
+                      <Image
+                        source={{ uri: getFullImageUrl(item.photos?.[0] || item.images?.[0]) }}
+                        className="w-full h-full"
+                        resizeMode="cover"
+                      />
+                      <View className="absolute top-2.5 right-2.5 bg-black/60 backdrop-blur-md px-2 py-0.5 rounded-full flex-row items-center">
+                        <Star size={10} color="#F59E0B" fill="#F59E0B" style={{ marginRight: 3 }} />
+                        <Text className="text-white font-[Inter_700Bold] text-[10px]">{item.avgRating || "5.0"}</Text>
+                      </View>
+                    </View>
+                    <View className="p-3">
+                      <Text className="text-sm font-[Inter_800ExtraBold] text-text-primary dark:text-surface mb-0.5" numberOfLines={1}>
+                        {item.title}
+                      </Text>
+                      <Text className="text-[11px] font-[Inter_500Medium] text-text-muted mb-2" numberOfLines={1}>
+                        {item.city || "Bhiwandi"}
+                      </Text>
+                      <Text className="text-xs font-[Inter_800ExtraBold] text-[#0066CC]">
+                        ₹{item.price12Hours?.toLocaleString('en-IN') || 0} <Text className="text-[10px] font-[Inter_500Medium] text-text-muted">/ 12h</Text>
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
         </View>
       </ScrollView>
 
@@ -661,232 +829,219 @@ export default function FarmhouseDetailScreen() {
           }
         }}
       >
-        <View className="flex-1 bg-black/60 justify-end">
+        <View className="flex-1 bg-black/65 justify-end">
           <Pressable
             style={StyleSheet.absoluteFill}
             onPress={() => setShowCalendar(false)}
           />
-          <View className="bg-surface dark:bg-surface rounded-t-[32px] p-6 shadow-2xl h-[85%] z-10">
-            <View className="w-12 h-1.5 bg-border dark:bg-border rounded-full mx-auto mb-4" />
+          <View className="bg-surface dark:bg-surface rounded-t-[36px] p-6 shadow-2xl h-[90%] z-10 border-t border-white/10">
+            {/* Top Drag Bar Handle */}
+            <View className="w-12 h-1.5 bg-border dark:bg-border rounded-full mx-auto mb-4 opacity-80" />
 
-            {/* Modal Header with Back Button and Close Button */}
-            <View className="flex-row justify-between items-center mb-4">
-              <View className="flex-row items-center">
-                {wizardStep > 1 && (
-                  <TouchableOpacity
-                    onPress={() => setWizardStep((prev) => (prev - 1) as any)}
-                    className="mr-3 p-2 bg-surface dark:bg-border rounded-full border border-border dark:border-border"
-                  >
-                    <ChevronLeft size={20} color={colors.textPrimary} />
-                  </TouchableOpacity>
-                )}
+            {/* Simplified 1-Screen Booking Header */}
+            <View className="mb-4">
+              <View className="flex-row items-center justify-between mb-3">
                 <View>
                   <Text className="text-xl font-[Inter_800ExtraBold] text-text-primary dark:text-surface">
-                    {wizardStep === 1 && "Step 1: Stay Type"}
-                    {wizardStep === 2 && "Step 2: Check-in Date"}
-                    {wizardStep === 3 && "Step 3: Check-in Time"}
-                    {wizardStep === 4 && "Step 4: Review Booking"}
+                    Select Stay & Date
                   </Text>
-                  <Text className="text-xs text-text-muted font-[Inter_500Medium]">
-                    {wizardStep === 1 && "Choose how long you plan to stay"}
-                    {wizardStep === 2 && "Select your check-in date on calendar"}
-                    {wizardStep === 3 && "Select your check-in time slot"}
-                    {wizardStep === 4 && "Review your stay details & proceed"}
+                  <Text className="text-xs text-text-muted mt-0.5">
+                    Pick your stay type, check-in date, and preferred time slot
                   </Text>
                 </View>
+                <TouchableOpacity onPress={() => setShowCalendar(false)} className="p-2.5 bg-surface dark:bg-border rounded-full border border-border">
+                  <X size={20} color={colors.textMuted} />
+                </TouchableOpacity>
               </View>
-              <TouchableOpacity onPress={() => setShowCalendar(false)} className="p-2 bg-surface dark:bg-border rounded-full border border-border dark:border-border">
-                <X size={20} color={colors.textMuted} />
-              </TouchableOpacity>
+
+              {/* Stay Type Pill Selector Header */}
+              <View className="flex-row bg-surface dark:bg-border/40 p-1.5 rounded-2xl border border-border">
+                <TouchableOpacity
+                  onPress={() => {
+                    setBookingType('12H');
+                    if (startDate) setEndDate(null);
+                  }}
+                  className={`flex-1 flex-row items-center justify-center py-2.5 rounded-xl ${bookingType === '12H' ? 'bg-[#0066CC]' : 'bg-transparent'}`}
+                >
+                  <Sun size={15} color={bookingType === '12H' ? 'white' : colors.textMuted} style={{ marginRight: 4 }} />
+                  <Text className={`font-[Inter_700Bold] text-xs ${bookingType === '12H' ? 'text-white' : 'text-text-muted'}`}>12H Day</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => {
+                    setBookingType('24H');
+                    if (startDate) setEndDate(addDaysToDateStr(startDate, 1));
+                  }}
+                  className={`flex-1 flex-row items-center justify-center py-2.5 rounded-xl ${bookingType === '24H' ? 'bg-[#0066CC]' : 'bg-transparent'}`}
+                >
+                  <Moon size={15} color={bookingType === '24H' ? 'white' : colors.textMuted} style={{ marginRight: 4 }} />
+                  <Text className={`font-[Inter_700Bold] text-xs ${bookingType === '24H' ? 'text-white' : 'text-text-muted'}`}>24H Full</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => {
+                    setBookingType('CUSTOM');
+                  }}
+                  className={`flex-1 flex-row items-center justify-center py-2.5 rounded-xl ${bookingType === 'CUSTOM' ? 'bg-[#0066CC]' : 'bg-transparent'}`}
+                >
+                  <Calendar size={15} color={bookingType === 'CUSTOM' ? 'white' : colors.textMuted} style={{ marginRight: 4 }} />
+                  <Text className={`font-[Inter_700Bold] text-xs ${bookingType === 'CUSTOM' ? 'text-white' : 'text-text-muted'}`}>Multi-Day</Text>
+                </TouchableOpacity>
+              </View>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
-              {/* STEP 1: Select Booking Type Cards */}
-              {wizardStep === 1 && (
-                <View className="mt-2 space-y-3">
-                  <TouchableOpacity
-                    onPress={() => {
-                      setBookingType('12H');
-                      setWizardStep(2);
-                    }}
-                    className="p-4 bg-surface dark:bg-border/60 rounded-2xl border border-border dark:border-border flex-row items-center justify-between"
-                  >
-                    <View className="flex-row items-center flex-1 mr-3">
-                      <View className="w-10 h-10 rounded-xl bg-[#0066CC]/10 items-center justify-center mr-3">
-                        <Sun size={20} color="#0066CC" />
-                      </View>
-                      <View className="flex-1">
-                        <Text className="text-sm font-[Inter_700Bold] text-text-primary dark:text-surface">12 Hours Day Stay</Text>
-                        <Text className="text-xs text-text-muted font-[Inter_500Medium]">Daytime party & pool access</Text>
-                        <Text className="text-xs font-[Inter_700Bold] text-[#0066CC] mt-0.5">₹{formatPrice(farmhouse.price12Hours)} / 12 hrs</Text>
-                      </View>
-                    </View>
-                    <ChevronRight size={20} color={colors.textMuted} />
-                  </TouchableOpacity>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
+              {/* Interactive Calendar */}
+              <View className="mb-4">
+                <CustomCalendar
+                  startDate={startDate}
+                  endDate={endDate}
+                  onDayPress={(dayStr) => {
+                    handleDayPress({ dateString: dayStr } as any);
+                    if (!selectedSlot) setSelectedSlot('10:00 AM');
+                  }}
+                  minDate={minDate}
+                  colors={colors}
+                  bookedDates={bookedDates}
+                />
+              </View>
 
-                  <TouchableOpacity
-                    onPress={() => {
-                      setBookingType('24H');
-                      setWizardStep(2);
-                    }}
-                    className="p-4 bg-surface dark:bg-border/60 rounded-2xl border border-border dark:border-border flex-row items-center justify-between mt-3"
-                  >
-                    <View className="flex-row items-center flex-1 mr-3">
-                      <View className="w-10 h-10 rounded-xl bg-[#0066CC]/10 items-center justify-center mr-3">
-                        <Moon size={20} color="#0066CC" />
-                      </View>
-                      <View className="flex-1">
-                        <Text className="text-sm font-[Inter_700Bold] text-text-primary dark:text-surface">24 Hours Full Stay</Text>
-                        <Text className="text-xs text-text-muted font-[Inter_500Medium]">Overnight & full day stay</Text>
-                        <Text className="text-xs font-[Inter_700Bold] text-[#0066CC] mt-0.5">₹{formatPrice(farmhouse.price24Hours)} / 24 hrs</Text>
-                      </View>
-                    </View>
-                    <ChevronRight size={20} color={colors.textMuted} />
-                  </TouchableOpacity>
+              {/* Weekend Rate Banner Badge */}
+              {startDate && (() => {
+                const isWeekendDay = new Date(startDate).getDay() === 0 || new Date(startDate).getDay() === 6;
+                const effectivePrice = isWeekendDay 
+                  ? (bookingType === '12H' ? (farmhouse.weekendPrice12Hours || farmhouse.price12Hours) : (farmhouse.weekendPrice24Hours || farmhouse.price24Hours))
+                  : (bookingType === '12H' ? farmhouse.price12Hours : farmhouse.price24Hours);
 
-                  <TouchableOpacity
-                    onPress={() => {
-                      setBookingType('CUSTOM');
-                      setWizardStep(2);
-                    }}
-                    className="p-4 bg-surface dark:bg-border/60 rounded-2xl border border-border dark:border-border flex-row items-center justify-between mt-3"
-                  >
-                    <View className="flex-row items-center flex-1 mr-3">
-                      <View className="w-10 h-10 rounded-xl bg-[#0066CC]/10 items-center justify-center mr-3">
-                        <Calendar size={20} color="#0066CC" />
-                      </View>
-                      <View className="flex-1">
-                        <Text className="text-sm font-[Inter_700Bold] text-text-primary dark:text-surface">Custom Multi-Day Stay</Text>
-                        <Text className="text-xs text-text-muted font-[Inter_500Medium]">Select flexible check-in & check-out dates</Text>
-                      </View>
-                    </View>
-                    <ChevronRight size={20} color={colors.textMuted} />
-                  </TouchableOpacity>
-                </View>
-              )}
-
-              {/* STEP 2: Pick Check-in Date */}
-              {wizardStep === 2 && (
-                <View className="mt-1">
-                  <Text className="text-xs font-[Inter_700Bold] text-[#0066CC] uppercase tracking-wider mb-2">
-                    {bookingType === 'CUSTOM' ? "Select Start & End Dates" : `Select Check-in Date (${bookingType})`}
-                  </Text>
-                  <CustomCalendar
-                    startDate={startDate}
-                    endDate={endDate}
-                    onDayPress={(dayStr) => handleDayPress({ dateString: dayStr } as any)}
-                    minDate={minDate}
-                    colors={colors}
-                    bookedDates={bookedDates}
-                  />
-                  {startDate && (
-                    <View className="mt-4 p-4 bg-surface dark:bg-border/40 rounded-2xl border border-border flex-row items-center justify-between">
-                      <View>
-                        <Text className="text-xs font-[Inter_600SemiBold] text-text-muted">Selected Check-in Date</Text>
-                        <Text className="text-base font-[Inter_700Bold] text-text-primary dark:text-surface">{formatDisplayDate(startDate)}</Text>
-                      </View>
-                      {bookingType !== 'CUSTOM' && (
-                        <TouchableOpacity
-                          onPress={() => setWizardStep(3)}
-                          className="px-5 py-2.5 bg-[#10B981] rounded-xl flex-row items-center"
-                        >
-                          <Text className="text-white font-[Inter_700Bold] text-xs mr-1">Next: Select Time</Text>
-                          <ChevronRight size={16} color="white" />
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  )}
-                </View>
-              )}
-
-              {/* STEP 3: Pick Check-in Time Slot */}
-              {wizardStep === 3 && (
-                <View className="mt-2">
-                  <Text className="text-sm font-[Inter_700Bold] text-text-primary dark:text-surface mb-1">
-                    Select Check-in Time Slot for {formatDisplayDate(startDate)}
-                  </Text>
-                  <Text className="text-xs text-text-muted mb-4">
-                    {bookingType === '12H' ? "Choose morning or night check-in" : "Choose your 24H check-in time"}
-                  </Text>
-
-                  {loadingSlots ? (
-                    <ActivityIndicator size="small" color="#0066CC" />
-                  ) : availableSlots.length === 0 ? (
-                    <Text className="text-danger font-[Inter_500Medium] text-sm py-4">No time slots available for this date.</Text>
-                  ) : (
-                    <View className="space-y-3">
-                      {availableSlots.map((slot) => {
-                        const isNightSlot = slot.includes("10:00 PM") || slot.includes("22:00");
-                        const calculatedCheckout = bookingType === '12H' 
-                          ? (isNightSlot ? `${formatDisplayDate(addDaysToDateStr(startDate!, 1))} at 10:00 AM (Next Morning)` : `${formatDisplayDate(startDate!)} at 10:00 PM (Same Night)`)
-                          : `${formatDisplayDate(addDaysToDateStr(startDate!, 1))} at ${slot}`;
-
-                        return (
-                          <TouchableOpacity
-                            key={slot}
-                            onPress={() => handleSelectSlot(slot)}
-                            className="p-4 bg-surface dark:bg-border/60 rounded-2xl border-2 border-border mb-3 flex-row items-center justify-between"
-                          >
-                            <View>
-                              <Text className="text-base font-[Inter_700Bold] text-text-primary dark:text-surface">Check-in Time: {slot}</Text>
-                              <Text className="text-xs text-text-muted mt-1">Check-out: <Text className="font-[Inter_700Bold] text-[#0066CC]">{calculatedCheckout}</Text></Text>
-                            </View>
-                            <ChevronRight size={20} color="#0066CC" />
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  )}
-                </View>
-              )}
-
-              {/* STEP 4: Review Trip Summary & Proceed */}
-              {wizardStep === 4 && (
-                <View className="mt-2">
-                  <View className="p-5 bg-surface dark:bg-border/50 rounded-3xl border border-border dark:border-border mb-4">
-                    <Text className="text-xs font-[Inter_700Bold] text-[#0066CC] uppercase tracking-widest mb-3">Booking Summary</Text>
-
-                    <View className="flex-row justify-between items-center mb-3 pb-3 border-b border-border/60">
-                      <Text className="text-xs font-[Inter_600SemiBold] text-text-muted">Stay Type</Text>
-                      <Text className="text-sm font-[Inter_700Bold] text-text-primary dark:text-surface">
-                        {bookingType === '12H' ? '12 Hours Stay' : bookingType === '24H' ? '24 Hours Stay' : 'Custom Multi-Day Stay'}
-                      </Text>
-                    </View>
-
-                    <View className="flex-row justify-between items-center mb-3 pb-3 border-b border-border/60">
-                      <View>
-                        <Text className="text-[10px] font-[Inter_600SemiBold] text-text-muted uppercase">Check-in</Text>
-                        <Text className="text-sm font-[Inter_700Bold] text-text-primary dark:text-surface">{formatDisplayDate(startDate)}</Text>
-                        <Text className="text-xs text-[#0066CC] font-[Inter_600SemiBold]">{selectedSlot || '10:00 AM'}</Text>
-                      </View>
-                      <View className="w-px h-8 bg-border" />
-                      <View className="items-end">
-                        <Text className="text-[10px] font-[Inter_600SemiBold] text-text-muted uppercase">Check-out</Text>
-                        <Text className="text-sm font-[Inter_700Bold] text-text-primary dark:text-surface">{formatDisplayDate(endDate)}</Text>
-                        <Text className="text-xs text-[#0066CC] font-[Inter_600SemiBold]">{checkOutTime || selectedSlot || '10:00 AM'}</Text>
-                      </View>
-                    </View>
-
-                    <View className="flex-row justify-between items-center pt-1">
-                      <Text className="text-xs font-[Inter_600SemiBold] text-text-muted">Stay Amount</Text>
-                      <Text className="text-lg font-[Inter_800ExtraBold] text-[#10B981]">
-                        ₹{formatPrice(bookingType === '12H' ? farmhouse.price12Hours : farmhouse.price24Hours)}
+                if (!isWeekendDay) return null;
+                return (
+                  <View className="mb-4 p-3.5 bg-amber-500/15 border border-amber-500/30 rounded-2xl flex-row items-center">
+                    <Sparkles size={18} color="#F59E0B" style={{ marginRight: 8 }} />
+                    <View className="flex-1">
+                      <Text className="text-xs font-[Inter_800ExtraBold] text-[#F59E0B]">Weekend Special Rate Applied</Text>
+                      <Text className="text-xs font-[Inter_600SemiBold] text-text-primary dark:text-surface">
+                        Saturday/Sunday Rate: ₹{formatPrice(effectivePrice)}
                       </Text>
                     </View>
                   </View>
+                );
+              })()}
 
-                  <TouchableOpacity
-                    className="py-4 bg-[#10B981] rounded-2xl items-center shadow-md mb-6"
-                    onPress={() => {
-                      const defaultCapacity = farmhouse?.includedGuests || farmhouse?.maxIncludedGuests || farmhouse?.capacity || 20;
-                      setPendingNavigation(`/checkout/${id}?start=${startDate}&end=${endDate}&type=${bookingType}&time=${selectedSlot || '10:00 AM'}&adults=${defaultCapacity}&children=0`);
-                      setShowCalendar(false);
-                    }}
-                  >
-                    <Text className="text-white font-[Inter_700Bold] text-base">Proceed to Confirm & Pay →</Text>
-                  </TouchableOpacity>
+              {/* Grouped Available Time Slots Grid */}
+              {startDate && (
+                <View className="mt-2 mb-6">
+                  <Text className="text-xs font-[Inter_800ExtraBold] text-[#0066CC] uppercase tracking-wider mb-2">
+                    Available Check-in Time Slots
+                  </Text>
+                  
+                  {loadingSlots ? (
+                    <ActivityIndicator size="small" color="#0066CC" className="py-4" />
+                  ) : (
+                    <View className="space-y-4">
+                      {/* Day Slots Group */}
+                      <View>
+                        <Text className="text-xs font-[Inter_700Bold] text-text-muted mb-2 flex-row items-center">
+                          ☀️ Day Check-in Slots (Morning / Afternoon)
+                        </Text>
+                        <View className="flex-row flex-wrap gap-2">
+                          {['10:00 AM', '11:00 AM', '12:00 PM'].map((slot) => {
+                            const isSelected = selectedSlot === slot || (!selectedSlot && slot === '10:00 AM');
+                            return (
+                              <TouchableOpacity
+                                key={slot}
+                                onPress={() => setSelectedSlot(slot)}
+                                className={`px-4 py-3 rounded-2xl border-2 flex-row items-center gap-1.5 ${
+                                  isSelected 
+                                    ? 'bg-[#0066CC]/15 border-[#0066CC]' 
+                                    : 'bg-surface dark:bg-border/40 border-border'
+                                }`}
+                              >
+                                {isSelected && <Check size={14} color="#0066CC" />}
+                                <Text className={`text-xs font-[Inter_700Bold] ${isSelected ? 'text-[#0066CC]' : 'text-text-primary dark:text-surface'}`}>
+                                  {slot}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      </View>
+
+                      {/* Evening & Night Slots Group */}
+                      <View className="mt-3">
+                        <Text className="text-xs font-[Inter_700Bold] text-text-muted mb-2 flex-row items-center">
+                          🌙 Evening & Night Slots
+                        </Text>
+                        <View className="flex-row flex-wrap gap-2">
+                          {['04:00 PM', '06:00 PM', '10:00 PM'].map((slot) => {
+                            const isSelected = selectedSlot === slot;
+                            return (
+                              <TouchableOpacity
+                                key={slot}
+                                onPress={() => setSelectedSlot(slot)}
+                                className={`px-4 py-3 rounded-2xl border-2 flex-row items-center gap-1.5 ${
+                                  isSelected 
+                                    ? 'bg-[#0066CC]/15 border-[#0066CC]' 
+                                    : 'bg-surface dark:bg-border/40 border-border'
+                                }`}
+                              >
+                                {isSelected && <Check size={14} color="#0066CC" />}
+                                <Text className={`text-xs font-[Inter_700Bold] ${isSelected ? 'text-[#0066CC]' : 'text-text-primary dark:text-surface'}`}>
+                                  {slot}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      </View>
+                    </View>
+                  )}
                 </View>
               )}
+
+              {/* Instant Sticky Checkout Bar */}
+              {startDate && (() => {
+                const numNights = (startDate && endDate && endDate > startDate)
+                  ? Math.max(1, Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24)))
+                  : 1;
+
+                const isWeekendDay = new Date(startDate).getDay() === 0 || new Date(startDate).getDay() === 6;
+                const basePrice = bookingType === '12H'
+                  ? (isWeekendDay ? (farmhouse.weekendPrice12Hours || farmhouse.price12Hours) : farmhouse.price12Hours)
+                  : (isWeekendDay ? (farmhouse.weekendPrice24Hours || farmhouse.price24Hours) : farmhouse.price24Hours);
+
+                const totalCalc = bookingType === 'CUSTOM' ? (farmhouse.price24Hours || farmhouse.price12Hours || 0) * numNights : (basePrice || 0);
+                const tokenCalc = bookingType === 'CUSTOM' ? totalCalc : Math.round(totalCalc * 0.5);
+
+                return (
+                  <View className="mt-2 p-5 bg-surface dark:bg-border/60 rounded-3xl border border-border shadow-md space-y-4">
+                    <View className="flex-row justify-between items-center pb-3 border-b border-border">
+                      <View>
+                        <Text className="text-[10px] font-[Inter_700Bold] text-text-muted uppercase">Selected Details</Text>
+                        <Text className="text-sm font-[Inter_800ExtraBold] text-text-primary dark:text-surface mt-0.5">
+                          {formatDisplayDate(startDate)} • {selectedSlot || '10:00 AM'}
+                        </Text>
+                      </View>
+                      <View className="items-end">
+                        <Text className="text-[10px] font-[Inter_700Bold] text-text-muted uppercase">Total Amount</Text>
+                        <Text className="text-lg font-[Inter_800ExtraBold] text-[#10B981]">₹{formatPrice(totalCalc)}</Text>
+                      </View>
+                    </View>
+
+                    <TouchableOpacity
+                      className="py-4 bg-[#10B981] rounded-2xl items-center shadow-lg flex-row justify-center"
+                      onPress={() => {
+                        const defaultCapacity = farmhouse?.includedGuests || farmhouse?.maxIncludedGuests || farmhouse?.capacity || 20;
+                        setPendingNavigation(`/checkout/${id}?start=${startDate}&end=${endDate || startDate}&type=${bookingType}&time=${selectedSlot || '10:00 AM'}&adults=${defaultCapacity}&children=0`);
+                        setShowCalendar(false);
+                      }}
+                    >
+                      <Text className="text-white font-[Inter_800ExtraBold] text-base mr-1">
+                        Confirm & Pay Token (₹{formatPrice(tokenCalc)}) →
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })()}
             </ScrollView>
           </View>
         </View>

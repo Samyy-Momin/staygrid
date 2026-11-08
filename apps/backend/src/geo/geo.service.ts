@@ -1,12 +1,15 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class GeoService {
   private readonly logger = new Logger(GeoService.name);
   
-  // Basic in-memory cache to prevent spamming the public API during rapid typing
   private autocompleteCache = new Map<string, any>();
   private directionsCache = new Map<string, any>();
+
+  constructor(private configService: ConfigService) {}
 
   async autocomplete(query: string, limit: number) {
     const cacheKey = `${query}-${limit}`;
@@ -14,11 +17,43 @@ export class GeoService {
       return this.autocompleteCache.get(cacheKey);
     }
 
+    const apiKey = this.configService.get<string>('GOOGLE_MAPS_API_KEY');
+
+    // If Google Maps API key is configured, use Google Places / Geocoding
+    if (apiKey && apiKey.trim() !== '') {
+      try {
+        const googleUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query + ', Maharashtra, India')}&key=${apiKey}`;
+        const fetchFn = (globalThis as any).fetch || require('node-fetch');
+        const response = await fetchFn(googleUrl);
+        const data = await response.json();
+
+        if (data.status === 'OK' && data.results) {
+          const features = data.results.slice(0, limit).map((r: any) => ({
+            geometry: {
+              coordinates: [r.geometry.location.lng, r.geometry.location.lat],
+            },
+            properties: {
+              name: r.formatted_address,
+              street: r.formatted_address,
+              city: 'Bhiwandi',
+              state: 'Maharashtra',
+            },
+          }));
+          const geoJsonResult = { features };
+          this.autocompleteCache.set(cacheKey, geoJsonResult);
+          setTimeout(() => this.autocompleteCache.delete(cacheKey), 5 * 60 * 1000);
+          return geoJsonResult;
+        }
+      } catch (err) {
+        this.logger.warn(`Google Maps API failed, falling back to Photon: ${err}`);
+      }
+    }
+
+    // Fallback to Photon (OpenStreetMap)
     try {
-      // Using public Photon instance (photon.komoot.io)
-      // Restricted to Maharashtra bounding box (roughly 72.5,15.5 to 81.0,22.1)
       const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=${limit}&bbox=72.5,15.5,81.0,22.1&lon=73.8567&lat=18.5204`;
-      const response = await fetch(url);
+      const fetchFn = (globalThis as any).fetch || require('node-fetch');
+      const response = await fetchFn(url);
       
       if (!response.ok) {
         throw new Error(`Photon API error: ${response.statusText}`);
@@ -26,7 +61,6 @@ export class GeoService {
 
       const data = await response.json();
       
-      // Cache for 5 minutes
       this.autocompleteCache.set(cacheKey, data);
       setTimeout(() => this.autocompleteCache.delete(cacheKey), 5 * 60 * 1000);
       
@@ -44,13 +78,12 @@ export class GeoService {
     }
 
     try {
-      // OSRM expects coordinates in lng,lat format
       const [fromLat, fromLng] = from.split(',');
       const [toLat, toLng] = to.split(',');
       
-      // OSRM Public API (router.project-osrm.org)
       const url = `https://router.project-osrm.org/route/v1/driving/${fromLng},${fromLat};${toLng},${toLat}?overview=full&geometries=geojson`;
-      const response = await fetch(url);
+      const fetchFn = (globalThis as any).fetch || require('node-fetch');
+      const response = await fetchFn(url);
       
       if (!response.ok) {
         throw new Error(`OSRM API error: ${response.statusText}`);
@@ -58,7 +91,6 @@ export class GeoService {
 
       const data = await response.json();
       
-      // Cache for 15 minutes (routes don't change often)
       this.directionsCache.set(cacheKey, data);
       setTimeout(() => this.directionsCache.delete(cacheKey), 15 * 60 * 1000);
       

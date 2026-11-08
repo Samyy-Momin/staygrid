@@ -89,4 +89,16 @@ export class UsersController {
       owner,
     };
   }
+
+  @Post('reset-owner-password')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Reset Owner Password',
+    description: 'Resets password for an Owner Admin account. System Admin only.',
+  })
+  async resetOwnerPassword(@Body() resetDto: import('./dto/reset-password.dto').ResetOwnerPasswordDto) {
+    return this.usersService.resetOwnerPassword(resetDto);
+  }
 }

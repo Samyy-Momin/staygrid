@@ -48,6 +48,21 @@ export class UploadController {
     return { urls };
   }
 
+  @Post('video')
+  @UseGuards(RolesGuard)
+  @Roles(Role.OWNER, Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Upload single video to Cloudinary' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FilesInterceptor('files', 1))
+  async uploadVideo(@UploadedFiles() files: Express.Multer.File[]) {
+    if (!files || files.length === 0) {
+      throw new BadRequestException('No video file provided');
+    }
+    const result = await this.uploadService.uploadVideoFile(files[0]);
+    return { url: result.secure_url, thumbnailUrl: result.secure_url.replace(/\.[^/.]+$/, ".jpg") };
+  }
+
   @Delete()
   @UseGuards(RolesGuard)
   @Roles(Role.OWNER, Role.ADMIN)

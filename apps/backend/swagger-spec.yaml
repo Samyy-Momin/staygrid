@@ -34,6 +34,14 @@ paths:
         "201":
           description: ""
       tags: *a1
+  /api/auth/complete-profile:
+    post:
+      operationId: AuthController_completeProfile
+      parameters: []
+      responses:
+        "201":
+          description: ""
+      tags: *a1
   /api/auth/{path}:
     get:
       operationId: AuthController_handleAuth_get
@@ -151,6 +159,17 @@ paths:
       security: *a2
       summary: Create Owner Admin
       tags: *a3
+  /api/users/reset-owner-password:
+    post:
+      description: Resets password for an Owner Admin account. System Admin only.
+      operationId: UsersController_resetOwnerPassword
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      security: *a2
+      summary: Reset Owner Password
+      tags: *a3
   /api/farmhouses:
     post:
       description: Create a new farmhouse listing
@@ -214,10 +233,30 @@ paths:
           in: query
           schema:
             type: string
+        - name: city
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: sortBy
+          required: true
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: ""
       summary: List Farmhouses (Public & Role Aware)
+      tags: *a4
+  /api/farmhouses/locations:
+    get:
+      description: Get list of distinct city names and property counts
+      operationId: FarmhousesController_getLocations
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      summary: Get Destination Locations
       tags: *a4
   /api/farmhouses/stats:
     get:
@@ -230,6 +269,17 @@ paths:
       security:
         - bearer: []
       summary: Get Farmhouse Stats (Role Aware)
+      tags: *a4
+  /api/farmhouses/cancelled-deals:
+    get:
+      description: Get farmhouses with recent cancelled bookings available for
+        last-minute booking
+      operationId: FarmhousesController_getCancelledDeals
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      summary: Get Farmhouses with Cancelled Deals
       tags: *a4
   /api/farmhouses/{id}:
     get:
@@ -354,6 +404,51 @@ paths:
         - bearer: []
       summary: Remove a blocked date range
       tags: *a4
+  /api/farmhouses/{id}/pricing-overrides:
+    get:
+      operationId: FarmhousesController_getPricingOverrides
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      summary: Get pricing overrides for farmhouse
+      tags: *a4
+    post:
+      operationId: FarmhousesController_upsertPricingOverride
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "201":
+          description: ""
+      security:
+        - bearer: []
+      summary: Create or update pricing override
+      tags: *a4
+  /api/farmhouses/pricing-overrides/{overrideId}:
+    delete:
+      operationId: FarmhousesController_deletePricingOverride
+      parameters:
+        - name: overrideId
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      security:
+        - bearer: []
+      summary: Delete pricing override
+      tags: *a4
   /api/media/upload:
     post:
       operationId: MediaController_uploadImage
@@ -475,6 +570,38 @@ paths:
           description: ""
       summary: Get Booked Dates
       tags: *a5
+  /api/bookings/owner-analytics:
+    get:
+      description: Get comprehensive aggregated analytics for farmhouse owners
+      operationId: BookingsController_getOwnerAnalytics
+      parameters:
+        - name: farmhouseId
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: period
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: startDate
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: endDate
+          required: true
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      security:
+        - bearer: []
+      summary: Owner Analytics Dashboard
+      tags: *a5
   /api/bookings/admin:
     post:
       description: Creates a confirmed booking on behalf of an end user
@@ -541,7 +668,8 @@ paths:
       tags: *a5
   /api/bookings/{id}/cancel:
     patch:
-      description: Mark a booking as CANCELLED
+      description: Cancel a booking with tiered refund policy (2h grace → 100%, 30d+ →
+        100%, 15-29d → 50%, <15d → 0%)
       operationId: BookingsController_cancelBooking
       parameters:
         - name: id
@@ -556,6 +684,75 @@ paths:
         - bearer: []
       summary: Cancel Booking
       tags: *a5
+  /api/bookings/{id}/confirm-cash:
+    patch:
+      description: Both owner and user must confirm cash payment was made/received
+      operationId: BookingsController_confirmCashPayment
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      security:
+        - bearer: []
+      summary: Confirm Cash Payment
+      tags: *a5
+  /api/notifications/push-token:
+    post:
+      operationId: NotificationsController_savePushToken
+      parameters: []
+      responses:
+        "201":
+          description: ""
+      security:
+        - bearer: []
+      summary: Register the authenticated user's Expo push token
+      tags:
+        - Notifications
+    delete:
+      operationId: NotificationsController_deletePushToken
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      security:
+        - bearer: []
+      summary: Remove the authenticated user's Expo push token
+      tags:
+        - Notifications
+  /api/notifications/me:
+    get:
+      operationId: NotificationsController_listMine
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      security:
+        - bearer: []
+      summary: List recent in-app notifications
+      tags:
+        - Notifications
+  /api/notifications/{id}/read:
+    patch:
+      operationId: NotificationsController_markRead
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      security:
+        - bearer: []
+      summary: Mark an in-app notification as read
+      tags:
+        - Notifications
   /api/upload:
     post:
       operationId: UploadController_uploadPhotos
@@ -577,6 +774,17 @@ paths:
       security:
         - bearer: []
       summary: Delete image from Cloudinary
+      tags: *a6
+  /api/upload/video:
+    post:
+      operationId: UploadController_uploadVideo
+      parameters: []
+      responses:
+        "201":
+          description: ""
+      security:
+        - bearer: []
+      summary: Upload single video to Cloudinary
       tags: *a6
   /api/import/validate:
     post:
@@ -814,6 +1022,19 @@ paths:
         "200":
           description: ""
       tags: *a11
+  /api/reviews/farmhouse/{farmhouseId}:
+    get:
+      operationId: ReviewsController_findByFarmhouse
+      parameters:
+        - name: farmhouseId
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      tags: *a11
   /api/reviews/{id}:
     get:
       operationId: ReviewsController_findOne
@@ -823,24 +1044,6 @@ paths:
           in: path
           schema:
             type: string
-      responses:
-        "200":
-          description: ""
-      tags: *a11
-    patch:
-      operationId: ReviewsController_update
-      parameters:
-        - name: id
-          required: true
-          in: path
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/UpdateReviewDto"
       responses:
         "200":
           description: ""
@@ -857,6 +1060,301 @@ paths:
         "200":
           description: ""
       tags: *a11
+  /api/pricing/{farmhouseId}:
+    get:
+      operationId: PricingController_getOverrides
+      parameters:
+        - name: farmhouseId
+          required: true
+          in: path
+          schema:
+            type: string
+        - name: month
+          required: true
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      summary: Get pricing overrides for a farmhouse
+      tags: &a12
+        - Pricing
+  /api/pricing/override:
+    post:
+      operationId: PricingController_createOrUpdateOverride
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePricingOverrideDto"
+      responses:
+        "201":
+          description: ""
+      security:
+        - bearer: []
+      summary: Set or update custom/festival pricing override for a specific date
+      tags: *a12
+  /api/pricing/weekend:
+    post:
+      operationId: PricingController_bulkSetWeekendPricing
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkWeekendPricingDto"
+      responses:
+        "201":
+          description: ""
+      security:
+        - bearer: []
+      summary: Bulk set Saturday/Sunday pricing overrides for a date range
+      tags: *a12
+  /api/pricing/override/{id}:
+    delete:
+      operationId: PricingController_deleteOverride
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      security:
+        - bearer: []
+      summary: Delete a pricing override
+      tags: *a12
+  /api/admin/finance/overview:
+    get:
+      operationId: FinanceController_getOverview
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      security: &a13
+        - bearer: []
+      summary: Get Executive Money Overview & Attention Items
+      tags: &a14
+        - Admin Money & Finance
+  /api/admin/finance/bookings:
+    get:
+      operationId: FinanceController_getBookings
+      parameters:
+        - name: tab
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: search
+          required: true
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      security: *a13
+      summary: Get Human-Readable Bookings Financial List
+      tags: *a14
+  /api/admin/finance/bookings/{id}:
+    get:
+      operationId: FinanceController_getBookingDetail
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      security: *a13
+      summary: Get Booking Financial Detail & Audit History
+      tags: *a14
+  /api/admin/finance/history:
+    get:
+      operationId: FinanceController_getHistory
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      security: *a13
+      summary: Get Immutable Financial Transaction Audit Logs
+      tags: *a14
+  /api/admin/finance/confirm-cash/{bookingId}:
+    patch:
+      operationId: FinanceController_confirmCash
+      parameters:
+        - name: bookingId
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      security: *a13
+      summary: Confirm Check-in Cash Collection by Caretaker
+      tags: *a14
+  /api/admin/finance/payout/{bookingId}:
+    patch:
+      operationId: FinanceController_settleOwnerPayout
+      parameters:
+        - name: bookingId
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      security: *a13
+      summary: Settle Owner Payout with Bank UTR Number
+      tags: *a14
+  /api/admin/finance/record-owner-payment/{bookingId}:
+    patch:
+      operationId: FinanceController_recordOwnerPayment
+      parameters:
+        - name: bookingId
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      security: *a13
+      summary: Record Owner Payment to StayGrid (When Owner Owes StayGrid)
+      tags: *a14
+  /api/admin/finance/refund/{bookingId}:
+    patch:
+      operationId: FinanceController_settleCustomerRefund
+      parameters:
+        - name: bookingId
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      security: *a13
+      summary: Settle Customer Refund with Optional Override
+      tags: *a14
+  /api/admin/finance/commission/{bookingId}:
+    patch:
+      operationId: FinanceController_updateCommission
+      parameters:
+        - name: bookingId
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      security: *a13
+      summary: Change StayGrid Share / Commission %
+      tags: *a14
+  /api/explore:
+    get:
+      operationId: ExploreController_getExploreFeed
+      parameters:
+        - name: type
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: isFeatured
+          required: true
+          in: query
+          schema:
+            type: string
+        - name: farmhouseId
+          required: true
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      summary: Get Explore Feed (Reels & Photos)
+      tags: &a15
+        - Explore Reels & Photos
+  /api/explore/sync-instagram:
+    post:
+      operationId: ExploreController_syncInstagramGraphApi
+      parameters: []
+      responses:
+        "201":
+          description: ""
+      summary: Sync Reels from Instagram Graph API
+      tags: *a15
+  /api/explore/admin:
+    post:
+      operationId: ExploreController_createExploreMedia
+      parameters: []
+      responses:
+        "201":
+          description: ""
+      security:
+        - bearer: []
+      summary: Create / Tag Explore Reel in Admin ERP
+      tags: *a15
+  /api/explore/admin/{id}:
+    delete:
+      operationId: ExploreController_deleteExploreMedia
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ""
+      security:
+        - bearer: []
+      summary: Delete Explore Reel in Admin ERP
+      tags: *a15
+  /api/admin/marketing/event:
+    post:
+      operationId: MarketingController_logEvent
+      parameters: []
+      responses:
+        "201":
+          description: ""
+      summary: Log user behavioral event (VIEW_FARMHOUSE, INITIATE_CHECKOUT)
+      tags: &a16
+        - Marketing analytics
+  /api/admin/marketing/overview:
+    get:
+      operationId: MarketingController_getFunnelOverview
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      security:
+        - bearer: []
+      summary: Get Marketing Funnel Overview Metrics
+      tags: *a16
+  /api/admin/marketing/abandoned-leads:
+    get:
+      operationId: MarketingController_getAbandonedCheckoutLeads
+      parameters: []
+      responses:
+        "200":
+          description: ""
+      security:
+        - bearer: []
+      summary: Get Abandoned Checkout Leads
+      tags: *a16
 info:
   title: StayGrid API
   description: The core backend API for the StayGrid monorepo.
@@ -966,8 +1464,6 @@ components:
           type: array
           items:
             type: string
-        tokenAmount:
-          type: number
         isWheelchairAccessible:
           type: boolean
         hasPool:
@@ -1006,6 +1502,10 @@ components:
           type: number
         balconyCount:
           type: number
+        sofaCount:
+          type: number
+        terraceCount:
+          type: number
         hasKitchen:
           type: boolean
         hasFridge:
@@ -1020,13 +1520,13 @@ components:
           type: number
         hasCarom:
           type: boolean
-        hasUno:
-          type: boolean
-        hasTeenPatti:
-          type: boolean
         hasChess:
           type: boolean
         has8BallPool:
+          type: boolean
+        hasCricket:
+          type: boolean
+        hasBadminton:
           type: boolean
         hasTv:
           type: boolean
@@ -1037,6 +1537,12 @@ components:
         hasWifi:
           type: boolean
         ownerId:
+          type: string
+        customAmenities:
+          type: array
+          items:
+            type: string
+        hostName:
           type: string
       required:
         - title
@@ -1070,6 +1576,12 @@ components:
           type: string
           example: Late check-in expected
           description: Additional notes or requests
+        bookingType:
+          type: string
+          example: 12H
+          description: "Booking type: 12H, 24H, or CUSTOM"
+        termsAcceptedAt:
+          type: string
       required:
         - checkIn
         - checkOut
@@ -1107,6 +1619,48 @@ components:
     CreateReviewDto:
       type: object
       properties: {}
-    UpdateReviewDto:
+    CreatePricingOverrideDto:
       type: object
-      properties: {}
+      properties:
+        farmhouseId:
+          type: string
+        date:
+          type: string
+          example: 2026-08-15
+        price12Hours:
+          type: number
+        price24Hours:
+          type: number
+        label:
+          type: string
+          example: Diwali Special
+        type:
+          type: string
+          example: FESTIVAL
+          enum:
+            - WEEKEND
+            - FESTIVAL
+            - CUSTOM
+      required:
+        - farmhouseId
+        - date
+        - type
+    BulkWeekendPricingDto:
+      type: object
+      properties:
+        farmhouseId:
+          type: string
+        startDate:
+          type: string
+          example: 2026-08-01
+        endDate:
+          type: string
+          example: 2026-08-31
+        price12Hours:
+          type: number
+        price24Hours:
+          type: number
+      required:
+        - farmhouseId
+        - startDate
+        - endDate

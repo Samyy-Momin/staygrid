@@ -14,6 +14,13 @@ import { GeoModule } from './geo/geo.module';
 import { CategoriesModule } from './categories/categories.module';
 import { HeroBannersModule } from './hero-banners/hero-banners.module';
 import { ReviewsModule } from './reviews/reviews.module';
+import { PricingModule } from './pricing/pricing.module';
+import { MailModule } from './mail/mail.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { FinanceModule } from './finance/finance.module';
+import { ExploreModule } from './explore/explore.module';
+import { MarketingModule } from './marketing/marketing.module';
+
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -29,6 +36,12 @@ import { ReviewsModule } from './reviews/reviews.module';
     CategoriesModule,
     HeroBannersModule,
     ReviewsModule,
+    PricingModule,
+    MailModule,
+    NotificationsModule,
+    FinanceModule,
+    ExploreModule,
+    MarketingModule,
   ],
   controllers: [AppController],
   providers: [AppService],

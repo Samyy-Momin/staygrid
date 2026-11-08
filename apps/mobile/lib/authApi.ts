@@ -60,18 +60,18 @@ export const authApi = {
     return res.data;
   },
 
-  async sendOtp(phoneNumber: string) {
-    const res = await api.post("/api/auth/mobile-otp/send", { 
-      phoneNumber: phoneNumber.replace(/\s+/g, '') 
-    });
+  async requestEmailOtp(email: string, type: 'sign-in' | 'email-verification') {
+    const res = await api.post("/api/auth/email-otp/send-verification-otp", { email: email.trim().toLowerCase(), type });
     return res.data;
   },
 
-  async verifyOtp(phoneNumber: string, code: string) {
-    const res = await api.post("/api/auth/mobile-otp/verify", { 
-      phoneNumber: phoneNumber.replace(/\s+/g, ''), 
-      code 
-    });
+  async signInEmailOtp(email: string, otp: string) {
+    const res = await api.post("/api/auth/sign-in/email-otp", { email: email.trim().toLowerCase(), otp });
+    return res.data;
+  },
+
+  async verifyEmailOtp(email: string, otp: string) {
+    const res = await api.post("/api/auth/email-otp/verify-email", { email: email.trim().toLowerCase(), otp });
     return res.data;
   },
 
@@ -82,6 +82,11 @@ export const authApi = {
     } catch (e) {
       return null;
     }
+  },
+
+  async completeProfile(data: { userId?: string; email?: string; phone: string; name?: string; age?: number; gender?: string }) {
+    const res = await api.post("/api/auth/complete-profile", data);
+    return res.data;
   },
 
   async signOut() {

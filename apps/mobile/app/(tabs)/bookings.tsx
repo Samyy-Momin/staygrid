@@ -2,7 +2,7 @@ import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, Image, Refre
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "expo-router";
-import { Calendar, MapPin, CheckCircle2, XCircle, Clock, History, Bookmark, X, ArrowRight } from "lucide-react-native";
+import { Calendar, MapPin, CheckCircle2, XCircle, Clock, History, Bookmark, X, ArrowRight, ArrowLeft } from "lucide-react-native";
 import { api } from "../../lib/authApi";
 import { getFullImageUrl } from "../../lib/config";
 import { useThemeColors } from "../../lib/theme-colors";
@@ -13,17 +13,31 @@ export default function BookingsScreen() {
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [isUnauthenticated, setIsUnauthenticated] = useState(false);
   
-  // Modals for History and Saved Drafts
+  // Modals for History, Saved Drafts, and Cancelled Deals
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [showSavedModal, setShowSavedModal] = useState(false);
+  const [showCancelledModal, setShowCancelledModal] = useState(false);
 
   const fetchBookings = async () => {
     try {
+      setIsUnauthenticated(false);
       const res = await api.get("/api/bookings/me");
-      setBookings(Array.isArray(res.data) ? res.data : []);
-    } catch (err) {
-      console.error(err);
+      const list = Array.isArray(res.data) ? res.data : [];
+      // Sort latest bookings at the top
+      list.sort((a: any, b: any) => {
+        const timeA = new Date(a.createdAt || a.checkIn || 0).getTime();
+        const timeB = new Date(b.createdAt || b.checkIn || 0).getTime();
+        return timeB - timeA;
+      });
+      setBookings(list);
+    } catch (err: any) {
+      if (err?.message?.includes("Authentication required") || err?.response?.status === 401) {
+        setIsUnauthenticated(true);
+      } else {
+        console.error("Fetch bookings error:", err);
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -51,9 +65,14 @@ export default function BookingsScreen() {
 
   const historyBookings = bookings.filter((b) => {
     if (!b) return false;
-    if (b.status === 'CANCELLED') return true;
+    if (b.status === 'CANCELLED' || b.status === 'SAVED') return false;
     const checkOutDate = b.checkOut ? new Date(b.checkOut) : null;
-    return checkOutDate && checkOutDate < now && b.status !== 'SAVED';
+    return checkOutDate && checkOutDate < now;
+  });
+
+  const cancelledBookings = bookings.filter((b) => {
+    if (!b) return false;
+    return b.status === 'CANCELLED';
   });
 
   const savedBookings = bookings.filter((b) => b && b.status === 'SAVED');
@@ -83,12 +102,11 @@ export default function BookingsScreen() {
 
   const handleCardPress = (item: any) => {
     if (item.status === 'PENDING_PAYMENT' || item.status === 'SAVED') {
-      // Resume payment
       const checkInDate = item.checkIn ? new Date(item.checkIn).toISOString().split('T')[0] : '';
       const checkOutDate = item.checkOut ? new Date(item.checkOut).toISOString().split('T')[0] : '';
       router.push(`/checkout/${item.farmhouseId}?start=${checkInDate}&end=${checkOutDate}&type=12H&adults=${item.adults || 2}&children=${item.children || 0}`);
     } else {
-      router.push(`/farmhouse/${item.farmhouseId}`);
+      router.push(`/bookings/${item.id}`);
     }
   };
 
@@ -133,7 +151,7 @@ export default function BookingsScreen() {
 
           {/* Property Title */}
           <Text className="text-2xl font-[Inter_800ExtraBold] text-text-primary dark:text-surface leading-tight mb-4 tracking-tight" numberOfLines={1}>
-            {item.farmhouse?.title || "The Ivory Estate"}
+            {item.farmhouse?.title || "StayGrid Farmhouse"}
           </Text>
 
           {/* 3-Column Key Stay Details */}
@@ -178,34 +196,36 @@ export default function BookingsScreen() {
           <View className="w-5 h-5 bg-[#F3F4F6] dark:bg-[#09090B] rounded-l-full -mr-2.5 z-10 border-t border-l border-b border-border dark:border-border" />
         </View>
 
-        {/* Bottom Section: Token Paid, Balance & View Button */}
-        <View className="p-5 pt-3 flex-row justify-between items-center">
-          <View>
-            <Text className="text-[10px] font-[Inter_700Bold] text-text-muted uppercase tracking-wider mb-0.5">
-              TOKEN PAID
-            </Text>
-            <Text className="text-base font-[Inter_800ExtraBold] text-text-primary dark:text-surface">
-              ₹{tokenPaid.toLocaleString('en-IN')}
-            </Text>
-          </View>
+        {/* Bottom Section: Token Paid, Balance & View/Action Buttons */}
+        <View className="p-5 pt-3 space-y-3">
+          <View className="flex-row justify-between items-center">
+            <View>
+              <Text className="text-[10px] font-[Inter_700Bold] text-text-muted uppercase tracking-wider mb-0.5">
+                TOKEN PAID
+              </Text>
+              <Text className="text-base font-[Inter_800ExtraBold] text-text-primary dark:text-surface">
+                ₹{tokenPaid.toLocaleString('en-IN')}
+              </Text>
+            </View>
 
-          <View className="ml-4">
-            <Text className="text-[10px] font-[Inter_700Bold] text-text-muted uppercase tracking-wider mb-0.5">
-              BALANCE
-            </Text>
-            <Text className="text-base font-[Inter_800ExtraBold] text-[#10B981]">
-              ₹{balance.toLocaleString('en-IN')}
-            </Text>
-          </View>
+            <View className="ml-4">
+              <Text className="text-[10px] font-[Inter_700Bold] text-text-muted uppercase tracking-wider mb-0.5">
+                BALANCE
+              </Text>
+              <Text className="text-base font-[Inter_800ExtraBold] text-[#10B981]">
+                ₹{balance.toLocaleString('en-IN')}
+              </Text>
+            </View>
 
-          <TouchableOpacity
-            className="ml-auto bg-[#0066CC] px-7 py-3 rounded-full shadow-md items-center justify-center"
-            onPress={() => handleCardPress(item)}
-          >
-            <Text className="text-white font-[Inter_800ExtraBold] text-sm">
-              {item.status === 'PENDING_PAYMENT' || item.status === 'SAVED' ? 'Pay Token' : 'View'}
-            </Text>
-          </TouchableOpacity>
+            <TouchableOpacity
+              className="ml-auto bg-[#0066CC] px-6 py-2.5 rounded-full shadow-md items-center justify-center"
+              onPress={() => handleCardPress(item)}
+            >
+              <Text className="text-white font-[Inter_800ExtraBold] text-xs">
+                {item.status === 'PENDING_PAYMENT' || item.status === 'SAVED' ? 'Pay Token' : 'View Details'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </TouchableOpacity>
     );
@@ -220,35 +240,48 @@ export default function BookingsScreen() {
             My Bookings
           </Text>
           <Text className="text-xs text-text-muted font-[Inter_500Medium]">
-            Upcoming stays & draft reservations
+            Manage reservations & cancelled deals
           </Text>
         </View>
 
         <View className="flex-row items-center gap-2">
-          {/* Saved Bookings Icon Button */}
+          {/* Saved Drafts Button */}
           <TouchableOpacity 
             onPress={() => setShowSavedModal(true)}
-            className="w-11 h-11 bg-surface dark:bg-border rounded-full items-center justify-center border border-border dark:border-border relative"
+            className="w-10 h-10 bg-surface dark:bg-border rounded-full items-center justify-center border border-border dark:border-border relative"
           >
-            <Bookmark size={20} color={colors.textPrimary} />
+            <Bookmark size={18} color={colors.textPrimary} />
             {savedBookings.length > 0 && (
-              <View className="absolute -top-1 -right-1 w-5 h-5 bg-[#0066CC] rounded-full items-center justify-center">
-                <Text className="text-[10px] font-[Inter_700Bold] text-white">{savedBookings.length}</Text>
+              <View className="absolute -top-1 -right-1 w-4 h-4 bg-[#0066CC] rounded-full items-center justify-center">
+                <Text className="text-[9px] font-[Inter_700Bold] text-white">{savedBookings.length}</Text>
               </View>
             )}
           </TouchableOpacity>
 
-          {/* History Icon Button */}
+          {/* History Button */}
           <TouchableOpacity 
             onPress={() => setShowHistoryModal(true)}
-            className="w-11 h-11 bg-surface dark:bg-border rounded-full items-center justify-center border border-border dark:border-border"
+            className="w-10 h-10 bg-surface dark:bg-border rounded-full items-center justify-center border border-border dark:border-border"
           >
-            <History size={20} color={colors.textPrimary} />
+            <History size={18} color={colors.textPrimary} />
+          </TouchableOpacity>
+
+          {/* Cancelled Deals Button */}
+          <TouchableOpacity 
+            onPress={() => setShowCancelledModal(true)}
+            className="w-10 h-10 bg-surface dark:bg-border rounded-full items-center justify-center border border-border dark:border-border relative"
+          >
+            <XCircle size={18} color="#EF4444" />
+            {cancelledBookings.length > 0 && (
+              <View className="absolute -top-1 -right-1 w-4 h-4 bg-[#EF4444] rounded-full items-center justify-center">
+                <Text className="text-[9px] font-[Inter_700Bold] text-white">{cancelledBookings.length}</Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Main Content: Upcoming Bookings List */}
+      {/* Main Content List */}
       {loading ? (
         <View className="flex-1 justify-center items-center">
           <ActivityIndicator size="large" color={colors.accentPrimary} />
@@ -262,37 +295,69 @@ export default function BookingsScreen() {
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#0066CC" />}
           ListEmptyComponent={
-            <View className="flex-1 justify-center items-center mt-16">
-              <View className="w-24 h-24 bg-surface dark:bg-border rounded-full items-center justify-center mb-6 border border-border dark:border-border">
-                <Calendar size={40} color="#9B9B9B" />
+            isUnauthenticated ? (
+              <View className="flex-1 justify-center items-center mt-12 px-6">
+                <View className="w-20 h-20 bg-surface dark:bg-border rounded-full items-center justify-center mb-5 border border-border dark:border-border">
+                  <Bookmark size={36} color="#0066CC" />
+                </View>
+                <Text className="text-2xl font-[Inter_800ExtraBold] text-text-primary dark:text-surface mb-2 text-center">
+                  Login Required
+                </Text>
+                <Text className="text-text-muted font-[Inter_500Medium] text-center px-4 mb-6 text-sm">
+                  Please log in to view your active bookings, past stay history, and saved drafts.
+                </Text>
+                <TouchableOpacity 
+                  className="bg-[#0066CC] px-8 py-3.5 rounded-full shadow-md"
+                  onPress={() => router.push("/auth/login")}
+                >
+                  <Text className="text-white font-[Inter_700Bold] text-base">Log In / Sign Up</Text>
+                </TouchableOpacity>
               </View>
-              <Text className="text-xl font-[Inter_700Bold] text-text-primary dark:text-surface mb-2">
-                No Upcoming Stays
-              </Text>
-              <Text className="text-text-muted font-[Inter_400Regular] text-center px-8 mb-6">
-                You don't have any active upcoming stays right now. Tap below to explore available farmhouses!
-              </Text>
-              
-              <TouchableOpacity 
-                className="bg-[#10B981] px-8 py-4 rounded-2xl shadow-md"
-                onPress={() => router.push('/(tabs)/home')}
-              >
-                <Text className="text-white font-[Inter_700Bold] text-base">Explore Farmhouses</Text>
-              </TouchableOpacity>
-            </View>
+            ) : (
+              <View className="flex-1 justify-center items-center mt-16">
+                <View className="w-24 h-24 bg-surface dark:bg-border rounded-full items-center justify-center mb-6 border border-border dark:border-border">
+                  <Calendar size={40} color="#9B9B9B" />
+                </View>
+                <Text className="text-xl font-[Inter_700Bold] text-text-primary dark:text-surface mb-2">
+                  No Upcoming Stays
+                </Text>
+                <Text className="text-text-muted font-[Inter_400Regular] text-center px-8 mb-6">
+                  You don't have any active upcoming stays right now. Tap below to explore available farmhouses!
+                </Text>
+                
+                <TouchableOpacity 
+                  className="bg-[#10B981] px-8 py-4 rounded-2xl shadow-md"
+                  onPress={() => router.push('/(tabs)/home')}
+                >
+                  <Text className="text-white font-[Inter_700Bold] text-base">Explore Farmhouses</Text>
+                </TouchableOpacity>
+              </View>
+            )
           }
         />
       )}
 
       {/* HISTORY MODAL */}
       <Modal visible={showHistoryModal} animationType="slide" transparent={false}>
-        <SafeAreaView className="flex-1 bg-surface dark:bg-surface">
+        <SafeAreaView className="flex-1 bg-surface dark:bg-surface" edges={['top', 'left', 'right']}>
           <View className="px-6 py-4 flex-row justify-between items-center border-b border-border dark:border-border">
             <View className="flex-row items-center">
-              <History size={24} color="#0066CC" className="mr-3" />
-              <Text className="text-xl font-[Inter_700Bold] text-text-primary dark:text-surface ml-2">Booking History</Text>
+              <TouchableOpacity 
+                onPress={() => setShowHistoryModal(false)} 
+                className="w-10 h-10 items-center justify-center rounded-full bg-surface dark:bg-border/60 border border-border/60 mr-3"
+                hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+                activeOpacity={0.7}
+              >
+                <ArrowLeft size={20} color={colors.textPrimary} />
+              </TouchableOpacity>
+              <History size={22} color="#0066CC" style={{ marginRight: 6 }} />
+              <Text className="text-xl font-[Inter_800ExtraBold] text-text-primary dark:text-surface">Booking History</Text>
             </View>
-            <TouchableOpacity onPress={() => setShowHistoryModal(false)} className="p-2 bg-surface dark:bg-border rounded-full">
+            <TouchableOpacity 
+              onPress={() => setShowHistoryModal(false)} 
+              className="w-10 h-10 items-center justify-center rounded-full bg-surface dark:bg-border/60 border border-border/60"
+              hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+            >
               <X size={20} color={colors.textMuted} />
             </TouchableOpacity>
           </View>
@@ -304,7 +369,7 @@ export default function BookingsScreen() {
             contentContainerStyle={{ padding: 24, flexGrow: 1 }}
             ListEmptyComponent={
               <View className="flex-1 justify-center items-center mt-20">
-                <Text className="text-base font-[Inter_600SemiBold] text-text-muted">No past or cancelled bookings found.</Text>
+                <Text className="text-base font-[Inter_600SemiBold] text-text-muted">No past bookings found.</Text>
               </View>
             }
           />
@@ -313,13 +378,25 @@ export default function BookingsScreen() {
 
       {/* SAVED DRAFTS MODAL */}
       <Modal visible={showSavedModal} animationType="slide" transparent={false}>
-        <SafeAreaView className="flex-1 bg-surface dark:bg-surface">
+        <SafeAreaView className="flex-1 bg-surface dark:bg-surface" edges={['top', 'left', 'right']}>
           <View className="px-6 py-4 flex-row justify-between items-center border-b border-border dark:border-border">
             <View className="flex-row items-center">
-              <Bookmark size={24} color="#0066CC" className="mr-3" />
-              <Text className="text-xl font-[Inter_700Bold] text-text-primary dark:text-surface ml-2">Saved Draft Bookings</Text>
+              <TouchableOpacity 
+                onPress={() => setShowSavedModal(false)} 
+                className="w-10 h-10 items-center justify-center rounded-full bg-surface dark:bg-border/60 border border-border/60 mr-3"
+                hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+                activeOpacity={0.7}
+              >
+                <ArrowLeft size={20} color={colors.textPrimary} />
+              </TouchableOpacity>
+              <Bookmark size={22} color="#0066CC" style={{ marginRight: 6 }} />
+              <Text className="text-xl font-[Inter_800ExtraBold] text-text-primary dark:text-surface">Saved Draft Bookings</Text>
             </View>
-            <TouchableOpacity onPress={() => setShowSavedModal(false)} className="p-2 bg-surface dark:bg-border rounded-full">
+            <TouchableOpacity 
+              onPress={() => setShowSavedModal(false)} 
+              className="w-10 h-10 items-center justify-center rounded-full bg-surface dark:bg-border/60 border border-border/60"
+              hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+            >
               <X size={20} color={colors.textMuted} />
             </TouchableOpacity>
           </View>
@@ -358,6 +435,45 @@ export default function BookingsScreen() {
               <View className="flex-1 justify-center items-center mt-20">
                 <Text className="text-base font-[Inter_600SemiBold] text-text-muted">No saved draft bookings.</Text>
                 <Text className="text-xs text-text-muted text-center mt-2 px-8">When reviewing a booking on checkout, tap "Save for Later" to store it here.</Text>
+              </View>
+            }
+          />
+        </SafeAreaView>
+      </Modal>
+
+      {/* CANCELLED DEALS MODAL */}
+      <Modal visible={showCancelledModal} animationType="slide" transparent={false}>
+        <SafeAreaView className="flex-1 bg-surface dark:bg-surface" edges={['top', 'left', 'right']}>
+          <View className="px-6 py-4 flex-row justify-between items-center border-b border-border dark:border-border">
+            <View className="flex-row items-center">
+              <TouchableOpacity 
+                onPress={() => setShowCancelledModal(false)} 
+                className="w-10 h-10 items-center justify-center rounded-full bg-surface dark:bg-border/60 border border-border/60 mr-3"
+                hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+                activeOpacity={0.7}
+              >
+                <ArrowLeft size={20} color={colors.textPrimary} />
+              </TouchableOpacity>
+              <XCircle size={22} color="#EF4444" style={{ marginRight: 6 }} />
+              <Text className="text-xl font-[Inter_800ExtraBold] text-text-primary dark:text-surface">Cancelled Bookings</Text>
+            </View>
+            <TouchableOpacity 
+              onPress={() => setShowCancelledModal(false)} 
+              className="w-10 h-10 items-center justify-center rounded-full bg-surface dark:bg-border/60 border border-border/60"
+              hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+            >
+              <X size={20} color={colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+
+          <FlatList
+            data={cancelledBookings}
+            keyExtractor={(item, idx) => (item?.id ? String(item.id) : String(idx))}
+            renderItem={renderBookingCard}
+            contentContainerStyle={{ padding: 24, flexGrow: 1 }}
+            ListEmptyComponent={
+              <View className="flex-1 justify-center items-center mt-20">
+                <Text className="text-base font-[Inter_600SemiBold] text-text-muted">No cancelled bookings found.</Text>
               </View>
             }
           />

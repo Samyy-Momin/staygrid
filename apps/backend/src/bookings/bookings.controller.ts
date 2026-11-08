@@ -84,6 +84,31 @@ export class BookingsController {
     return this.bookingsService.getBookedDates(farmhouseId);
   }
 
+  @Get('owner-analytics')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.OWNER)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Owner Analytics Dashboard',
+    description: 'Get comprehensive aggregated analytics for farmhouse owners',
+  })
+  async getOwnerAnalytics(
+    @Req() req: AuthenticatedRequest,
+    @Query('farmhouseId') farmhouseId?: string,
+    @Query('period') period?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    return this.bookingsService.getOwnerAnalytics(
+      req.user.id,
+      req.user.role,
+      farmhouseId,
+      period,
+      startDate,
+      endDate,
+    );
+  }
+
   @Get()
   @UseGuards(RolesGuard)
   @Roles(Role.ADMIN, Role.OWNER)
@@ -161,13 +186,30 @@ export class BookingsController {
 
   @Patch(':id/cancel')
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN, Role.OWNER)
   @ApiBearerAuth()
   @ApiOperation({
     summary: 'Cancel Booking',
-    description: 'Mark a booking as CANCELLED',
+    description: 'Cancel a booking with tiered refund policy (2h grace → 100%, 30d+ → 100%, 15-29d → 50%, <15d → 0%)',
   })
-  async cancelBooking(@Param('id') id: string) {
-    return this.bookingsService.cancelBooking(id);
+  async cancelBooking(
+    @Param('id') id: string,
+    @Req() req: AuthenticatedRequest,
+    @Body('reason') reason?: string,
+  ) {
+    return this.bookingsService.cancelBooking(id, req.user.id, reason);
+  }
+
+  @Patch(':id/confirm-cash')
+  @UseGuards(RolesGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Confirm Cash Payment',
+    description: 'Both owner and user must confirm cash payment was made/received',
+  })
+  async confirmCashPayment(
+    @Param('id') id: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.bookingsService.confirmCashPayment(id, req.user.role, req.user.id);
   }
 }

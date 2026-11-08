@@ -11,10 +11,10 @@ config.watchFolders = [
   path.resolve(__dirname, '../../node_modules'),
 ];
 
-// Strictly resolve React from the mobile app's node_modules to avoid Invalid Hook Call
+// Resolve packages from both local and monorepo root node_modules
 config.resolver.nodeModulesPaths = [
   path.resolve(__dirname, 'node_modules'),
+  path.resolve(__dirname, '../../node_modules'),
 ];
-config.resolver.disableHierarchicalLookup = true;
 
 module.exports = withNativeWind(config, { input: "./global.css" });

@@ -35,4 +35,14 @@ export class CreateBookingDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiProperty({ example: '12H', description: 'Booking type: 12H, 24H, or CUSTOM', required: false })
+  @IsOptional()
+  @IsString()
+  bookingType?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsDateString()
+  termsAcceptedAt?: string;
 }

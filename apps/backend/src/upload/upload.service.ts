@@ -27,6 +27,19 @@ export class UploadService {
     });
   }
 
+  uploadVideoFile(file: Express.Multer.File): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        { folder: 'staygrid_reels', resource_type: 'video' },
+        (error, result) => {
+          if (error) return reject(error);
+          resolve(result);
+        },
+      );
+      streamifier.createReadStream(file.buffer).pipe(uploadStream);
+    });
+  }
+
   async uploadMultiple(files: Express.Multer.File[]) {
     if (!files || files.length === 0) {
       throw new BadRequestException('No files provided');

@@ -1,287 +1,273 @@
 import { useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView } from "react-native";
+import { View, Text, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Link, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { Eye, EyeOff } from "lucide-react-native";
 import { authApi } from "../../lib/authApi";
 import { useThemeColors } from "../../lib/theme-colors";
+import { StayGridTextField, StayGridOtpField } from "../../components/ui/StayGridTextField";
+import { mixpanel } from "../../lib/mixpanel";
+import { registerForPushNotificationsAsync } from "../../lib/notifications";
 
 export default function SignupScreen() {
- const router = useRouter();
- const [step, setStep] = useState(1);
- const [formData, setFormData] = useState({
- firstName: "",
- lastName: "",
- phone: "",
- email: "",
- age: "",
- gender: "",
- password: "",
- confirmPassword: "",
- });
- const [otp, setOtp] = useState("");
- const [loading, setLoading] = useState(false);
- const [showPassword, setShowPassword] = useState(false);
- const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const router = useRouter();
+  const [step, setStep] = useState(1);
+  const [formData, setFormData] = useState({
+    firstName: "",
+    lastName: "",
+    phone: "",
+    email: "",
+    age: "",
+    gender: "",
+    password: "",
+    confirmPassword: "",
+  });
+  const [otp, setOtp] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
- const [error, setError] = useState("");
- const colors = useThemeColors();
+  const [error, setError] = useState("");
+  const colors = useThemeColors();
 
- const handleCreateAccount = async () => {
- setError("");
- 
- // Clean inputs
- const cleanFirstName = formData.firstName.trim().replace(/\s+/g, ' ');
- const cleanLastName = formData.lastName.trim().replace(/\s+/g, ' ');
- 
- if (!cleanFirstName || !cleanLastName || !formData.email || !formData.password || !formData.phone) {
- setError("Please fill in all required fields");
- return;
- }
- if (formData.password !== formData.confirmPassword) {
- setError("Passwords do not match!");
- return;
- }
- 
- const cleanPhone = formData.phone.replace(/[^0-9]/g, '');
- if (cleanPhone.length !== 10) {
- setError("Please enter a valid 10-digit phone number");
- return;
- }
- 
- setLoading(true);
- try {
- const sanitizedData = {
- ...formData,
- name: `${cleanFirstName} ${cleanLastName}`,
- phone: `+91${cleanPhone}`
- };
- // 1. Create the user with Email/Password
- await authApi.signUp(sanitizedData);
- 
- // 2. Trigger the real Twilio OTP (if backend is configured)
- try {
- await authApi.sendOtp(`+91${cleanPhone}`);
- } catch (otpErr) {
- console.warn("OTP Send failed, but account created:", otpErr);
- }
- 
- setStep(2);
- } catch (err: any) {
- setError(err.message || "Failed to create account");
- } finally {
- setLoading(false);
- }
- };
+  const handleCreateAccount = async () => {
+    setError("");
+    const cleanFirstName = formData.firstName.trim().replace(/\s+/g, ' ');
+    const cleanLastName = formData.lastName.trim().replace(/\s+/g, ' ');
+    const email = formData.email.trim().toLowerCase();
+    const cleanPhone = formData.phone.replace(/[^0-9]/g, '');
 
- const handleVerifyOtp = async () => {
- setError("");
- setLoading(true);
- try {
- // For trial accounts, if the OTP fails because of unverified numbers, we just login anyway
- // since the account was already created in Step 1.
- try {
- const cleanPhone = formData.phone.replace(/[^0-9]/g, '');
- await authApi.verifyOtp(`+91${cleanPhone}`, otp);
- } catch (err) {
- console.warn("OTP Verify failed (trial account?):", err);
- }
- 
- // Attempt login to set session
- await authApi.signIn(formData.email, formData.password);
- router.replace("/(tabs)/home");
- } catch (err: any) {
- setError(err.message || "Invalid OTP or login failed");
- } finally {
- setLoading(false);
- }
- };
+    if (!cleanFirstName || !cleanLastName || !email || !formData.password || !cleanPhone) {
+      setError("Please fill in all required fields");
+      return;
+    }
+    if (cleanPhone.length !== 10) {
+      setError("Please enter a valid 10-digit phone number");
+      return;
+    }
+    if (formData.password !== formData.confirmPassword) {
+      setError("Passwords do not match");
+      return;
+    }
 
- return (
- <SafeAreaView className="flex-1 bg-surface dark:bg-surface">
- <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} className="flex-1">
- <ScrollView contentContainerStyle={{ padding: 24, flexGrow: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
- <View className="flex-row items-center mb-6">
- <TouchableOpacity 
- onPress={() => step === 2 ? setStep(1) : router.back()} 
- className="mr-4 p-2 -ml-2 rounded-full bg-surface dark:bg-surface"
- >
- <Text className="text-text-primary dark:text-surface font-[Inter_600SemiBold]">←</Text>
- </TouchableOpacity>
- <Text className="text-2xl font-[Inter_700Bold] text-text-primary dark:text-surface">
- {step === 1 ? "Create Account" : "Verify Number"}
- </Text>
- </View>
+    setLoading(true);
+    try {
+      await authApi.signUp({
+        name: cleanFirstName + ' ' + cleanLastName,
+        email,
+        password: formData.password,
+        phone: '+91' + cleanPhone,
+        gender: formData.gender,
+        age: formData.age ? Number(formData.age) : undefined,
+      });
+      await authApi.requestEmailOtp(email, 'email-verification');
+      setStep(2);
+    } catch (err: any) {
+      setError(err.message || "Failed to create account");
+    } finally {
+      setLoading(false);
+    }
+  };
 
- {error ? (
- <View className="bg-danger/10 dark:bg-surface border border-danger dark:border-danger rounded-xl p-4 mb-4">
- <Text className="text-danger font-[Inter_500Medium]">{error}</Text>
- </View>
- ) : null}
+  const handleVerifyOtp = async () => {
+    setError("");
+    setLoading(true);
+    try {
+      const email = formData.email.trim().toLowerCase();
+      await authApi.verifyEmailOtp(email, otp.trim());
+      await authApi.signIn(email, formData.password);
+      const session = await authApi.getSession();
+      const userId = session?.user?.id;
+      if (userId) {
+        await mixpanel.identify(userId);
+        await mixpanel.setPeople({
+          $name: cleanName(),
+          $email: email,
+          $phone: '+91' + formData.phone.replace(/[^0-9]/g, ''),
+          role: "CUSTOMER",
+          gender: formData.gender || undefined,
+          age: formData.age ? Number(formData.age) : undefined,
+        });
+        await mixpanel.track("sign_up_completed", { sign_up_method: "email_otp", platform: "mobile" });
+      }
+      await registerForPushNotificationsAsync();
+      router.replace("/(tabs)/home");
+    } catch (err: any) {
+      setError(err.message || "Invalid verification code or login failed");
+    } finally {
+      setLoading(false);
+    }
+  };
 
- {step === 1 ? (
- <View className="space-y-4 flex-1">
- <View className="flex-row gap-4">
- <View className="flex-1">
- <Text className="text-sm font-[Inter_500Medium] text-text-primary dark:text-text-muted mb-1">First Name</Text>
- <TextInput 
- className="w-full bg-surface dark:bg-surface border border-border dark:border-border rounded-xl px-4 py-4 text-base text-text-primary dark:text-surface font-[Inter_400Regular]"
- placeholder="John"
- placeholderTextColor={colors.textMuted}
- value={formData.firstName}
- onChangeText={v => setFormData({...formData, firstName: v})}
- />
- </View>
- <View className="flex-1">
- <Text className="text-sm font-[Inter_500Medium] text-text-primary dark:text-text-muted mb-1">Last Name</Text>
- <TextInput 
- className="w-full bg-surface dark:bg-surface border border-border dark:border-border rounded-xl px-4 py-4 text-base text-text-primary dark:text-surface font-[Inter_400Regular]"
- placeholder="Doe"
- placeholderTextColor={colors.textMuted}
- value={formData.lastName}
- onChangeText={v => setFormData({...formData, lastName: v})}
- />
- </View>
- </View>
+  const cleanName = () => formData.firstName.trim() + ' ' + formData.lastName.trim();
 
- <View>
- <Text className="text-sm font-[Inter_500Medium] text-text-primary dark:text-text-muted mb-1">Phone Number</Text>
- <View className="flex-row w-full bg-surface dark:bg-surface border border-border dark:border-border rounded-xl px-4 py-4 items-center">
- <Text className="text-base text-text-primary dark:text-surface font-[Inter_500Medium] mr-2">+91</Text>
- <TextInput 
- className="flex-1 text-base text-text-primary dark:text-surface font-[Inter_400Regular] p-0"
- placeholder="9876543210"
- placeholderTextColor={colors.textMuted}
- keyboardType="phone-pad"
- maxLength={10}
- value={formData.phone}
- onChangeText={v => setFormData({...formData, phone: v.replace(/[^0-9]/g, '')})}
- />
- </View>
- </View>
+  return (
+    <SafeAreaView className="flex-1 bg-surface dark:bg-surface">
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} className="flex-1">
+        <ScrollView contentContainerStyle={{ padding: 24, flexGrow: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <View className="flex-row items-center mb-6">
+            <TouchableOpacity 
+              onPress={() => step === 2 ? setStep(1) : router.back()} 
+              className="mr-4 p-2 -ml-2 rounded-full bg-surface dark:bg-surface"
+            >
+              <Text className="text-text-primary dark:text-surface font-[Inter_600SemiBold]">←</Text>
+            </TouchableOpacity>
+            <Text className="text-2xl font-[Inter_700Bold] text-text-primary dark:text-surface">
+              {step === 1 ? "Create Account" : "Verify Email"}
+            </Text>
+          </View>
 
- <View>
- <Text className="text-sm font-[Inter_500Medium] text-text-primary dark:text-text-muted mb-1">Email Address</Text>
- <TextInput 
- className="w-full bg-surface dark:bg-surface border border-border dark:border-border rounded-xl px-4 py-4 text-base text-text-primary dark:text-surface font-[Inter_400Regular]"
- placeholder="john@example.com"
- placeholderTextColor={colors.textMuted}
- keyboardType="email-address"
- autoCapitalize="none"
- value={formData.email}
- onChangeText={v => setFormData({...formData, email: v})}
- />
- </View>
+          {error ? (
+            <View className="bg-danger/10 dark:bg-surface border border-danger dark:border-danger rounded-xl p-4 mb-4">
+              <Text className="text-danger font-[Inter_500Medium]">{error}</Text>
+            </View>
+          ) : null}
 
- <View className="flex-row gap-4">
- <View className="flex-1">
- <Text className="text-sm font-[Inter_500Medium] text-text-primary dark:text-text-muted mb-1">Age</Text>
- <TextInput 
- className="w-full bg-surface dark:bg-surface border border-border dark:border-border rounded-xl px-4 py-4 text-base text-text-primary dark:text-surface font-[Inter_400Regular]"
- placeholder="25"
- placeholderTextColor={colors.textMuted}
- keyboardType="number-pad"
- value={formData.age}
- onChangeText={v => setFormData({...formData, age: v})}
- />
- </View>
- <View className="flex-1">
- <Text className="text-sm font-[Inter_500Medium] text-text-primary dark:text-text-muted mb-1">Gender</Text>
- <View className="flex-row gap-2">
- <TouchableOpacity 
- onPress={() => setFormData({...formData, gender: "Male"})}
- className={`flex-1 py-4 rounded-xl border items-center justify-center ${formData.gender === "Male" ? "bg-surface border-accent-primary dark:bg-surface" : "bg-surface border-border dark:bg-surface dark:border-border"}`}
- >
- <Text className={`text-base font-[Inter_500Medium] ${formData.gender === "Male" ? "text-accent-primary dark:text-text-muted" : "text-text-muted"}`}>Male</Text>
- </TouchableOpacity>
- <TouchableOpacity 
- onPress={() => setFormData({...formData, gender: "Female"})}
- className={`flex-1 py-4 rounded-xl border items-center justify-center ${formData.gender === "Female" ? "bg-surface border-accent-primary dark:bg-surface" : "bg-surface border-border dark:bg-surface dark:border-border"}`}
- >
- <Text className={`text-base font-[Inter_500Medium] ${formData.gender === "Female" ? "text-accent-primary dark:text-text-muted" : "text-text-muted"}`}>Female</Text>
- </TouchableOpacity>
- </View>
- </View>
- </View>
+          {step === 1 ? (
+            <View className="space-y-4 flex-1">
+              <View className="flex-row gap-4">
+                <View className="flex-1">
+                  <StayGridTextField
+                    label="First Name"
+                    value={formData.firstName}
+                    onChangeText={v => setFormData({...formData, firstName: v})}
+                    placeholder="John"
+                  />
+                </View>
+                <View className="flex-1">
+                  <StayGridTextField
+                    label="Last Name"
+                    value={formData.lastName}
+                    onChangeText={v => setFormData({...formData, lastName: v})}
+                    placeholder="Doe"
+                  />
+                </View>
+              </View>
 
- <View>
- <Text className="text-sm font-[Inter_500Medium] text-text-primary dark:text-text-muted mb-1">Password</Text>
- <View className="relative justify-center">
- <TextInput 
- className="w-full bg-surface dark:bg-surface border border-border dark:border-border rounded-xl px-4 py-4 pr-12 text-base text-text-primary dark:text-surface font-[Inter_400Regular]"
- placeholder="Create a strong password"
- placeholderTextColor={colors.textMuted}
- secureTextEntry={!showPassword}
- value={formData.password}
- onChangeText={v => setFormData({...formData, password: v})}
- />
- <TouchableOpacity onPress={() => setShowPassword(!showPassword)} className="absolute right-4">
- {showPassword ? <EyeOff size={20} color={colors.textMuted} /> : <Eye size={20} color={colors.textMuted} />}
- </TouchableOpacity>
- </View>
- </View>
+              <StayGridTextField
+                label="Phone Number"
+                value={formData.phone}
+                onChangeText={v => setFormData({...formData, phone: v.replace(/[^0-9]/g, '')})}
+                placeholder="9876543210"
+                keyboardType="phone-pad"
+                maxLength={10}
+                prefix={
+                  <Text className="text-base text-text-primary dark:text-surface font-[Inter_500Medium]">
+                    +91
+                  </Text>
+                }
+              />
 
- <View>
- <Text className="text-sm font-[Inter_500Medium] text-text-primary dark:text-text-muted mb-1">Confirm Password</Text>
- <View className="relative justify-center">
- <TextInput 
- className="w-full bg-surface dark:bg-surface border border-border dark:border-border rounded-xl px-4 py-4 pr-12 text-base text-text-primary dark:text-surface font-[Inter_400Regular]"
- placeholder="Repeat your password"
- placeholderTextColor={colors.textMuted}
- secureTextEntry={!showConfirmPassword}
- value={formData.confirmPassword}
- onChangeText={v => setFormData({...formData, confirmPassword: v})}
- />
- <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-4">
- {showConfirmPassword ? <EyeOff size={20} color={colors.textMuted} /> : <Eye size={20} color={colors.textMuted} />}
- </TouchableOpacity>
- </View>
- </View>
+              <StayGridTextField
+                label="Email Address"
+                value={formData.email}
+                onChangeText={v => setFormData({...formData, email: v})}
+                placeholder="john@example.com"
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
 
- <TouchableOpacity 
- className="w-full bg-accent-primary rounded-xl py-4 items-center mt-4 opacity-90"
- onPress={handleCreateAccount}
- disabled={loading}
- >
- <Text className="text-white text-lg font-[Inter_600SemiBold]">
- {loading ? "Creating..." : "Continue"}
- </Text>
- </TouchableOpacity>
- </View>
- ) : (
- <View className="space-y-4 flex-1 mt-8">
- <Text className="text-text-muted dark:text-text-muted font-[Inter_400Regular] text-center mb-4">
- We've sent an OTP via WhatsApp to +91 {formData.phone}.
- </Text>
- <TextInput 
- className="w-full bg-surface dark:bg-surface border border-border dark:border-border rounded-xl px-4 py-4 text-center text-2xl tracking-widest text-text-primary dark:text-surface font-[Inter_700Bold]"
- placeholder="0000"
- placeholderTextColor={colors.textMuted}
- keyboardType="number-pad"
- maxLength={4}
- value={otp}
- onChangeText={setOtp}
- />
- <TouchableOpacity 
- className="w-full bg-success rounded-xl py-4 items-center mt-4"
- onPress={handleVerifyOtp}
- disabled={loading}
- >
- <Text className="text-white text-lg font-[Inter_600SemiBold]">{loading ? "Verifying..." : "Verify & Login"}</Text>
- </TouchableOpacity>
- </View>
- )}
+              <View className="flex-row gap-4">
+                <View className="flex-1">
+                  <StayGridTextField
+                    label="Age"
+                    value={formData.age}
+                    onChangeText={v => setFormData({...formData, age: v})}
+                    placeholder="25"
+                    keyboardType="number-pad"
+                  />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-sm font-[Inter_500Medium] text-text-primary dark:text-text-muted mb-1.5">Gender</Text>
+                  <View className="flex-row gap-2">
+                    <TouchableOpacity 
+                      onPress={() => setFormData({...formData, gender: "Male"})}
+                      className={`flex-1 h-[52px] rounded-xl border items-center justify-center ${formData.gender === "Male" ? "bg-surface border-accent-primary dark:bg-surface" : "bg-surface border-border dark:bg-surface dark:border-border"}`}
+                    >
+                      <Text className={`text-base font-[Inter_500Medium] ${formData.gender === "Male" ? "text-accent-primary dark:text-text-muted" : "text-text-muted"}`}>Male</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      onPress={() => setFormData({...formData, gender: "Female"})}
+                      className={`flex-1 h-[52px] rounded-xl border items-center justify-center ${formData.gender === "Female" ? "bg-surface border-accent-primary dark:bg-surface" : "bg-surface border-border dark:bg-surface dark:border-border"}`}
+                    >
+                      <Text className={`text-base font-[Inter_500Medium] ${formData.gender === "Female" ? "text-accent-primary dark:text-text-muted" : "text-text-muted"}`}>Female</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
 
- {step === 1 && (
- <View className="mt-6 pt-4 items-center flex-row justify-center">
- <Text className="text-text-muted font-[Inter_400Regular]">Already have an account? </Text>
- <TouchableOpacity onPress={() => router.push("/auth/login")}>
- <Text className="text-accent-primary dark:text-text-muted font-[Inter_600SemiBold]">Login</Text>
- </TouchableOpacity>
- </View>
- )}
- </ScrollView>
- </KeyboardAvoidingView>
- </SafeAreaView>
- );
+              <StayGridTextField
+                label="Password"
+                value={formData.password}
+                onChangeText={v => setFormData({...formData, password: v})}
+                placeholder="Create a strong password"
+                secureTextEntry={!showPassword}
+                autoCapitalize="none"
+                autoCorrect={false}
+                suffix={
+                  <TouchableOpacity onPress={() => setShowPassword(!showPassword)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                    {showPassword ? <EyeOff size={20} color={colors.textMuted} /> : <Eye size={20} color={colors.textMuted} />}
+                  </TouchableOpacity>
+                }
+              />
+
+              <StayGridTextField
+                label="Confirm Password"
+                value={formData.confirmPassword}
+                onChangeText={v => setFormData({...formData, confirmPassword: v})}
+                placeholder="Repeat your password"
+                secureTextEntry={!showConfirmPassword}
+                autoCapitalize="none"
+                autoCorrect={false}
+                suffix={
+                  <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                    {showConfirmPassword ? <EyeOff size={20} color={colors.textMuted} /> : <Eye size={20} color={colors.textMuted} />}
+                  </TouchableOpacity>
+                }
+              />
+
+              <TouchableOpacity 
+                className="w-full bg-accent-primary rounded-xl py-4 items-center mt-4 opacity-90"
+                onPress={handleCreateAccount}
+                disabled={loading}
+              >
+                <Text className="text-white text-lg font-[Inter_600SemiBold]">
+                  {loading ? "Creating..." : "Continue"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View className="space-y-4 flex-1 mt-8">
+              <Text className="text-text-muted dark:text-text-muted font-[Inter_400Regular] text-center mb-4">
+                We've sent a verification code to {formData.email}.
+              </Text>
+              <StayGridOtpField
+                label="Enter email code"
+                value={otp}
+                placeholder="000000"
+                maxLength={6}
+                onChangeText={setOtp}
+              />
+              <TouchableOpacity 
+                className="w-full bg-success rounded-xl py-4 items-center mt-4"
+                onPress={handleVerifyOtp}
+                disabled={loading}
+              >
+                <Text className="text-white text-lg font-[Inter_600SemiBold]">{loading ? "Verifying..." : "Verify & Login"}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {step === 1 && (
+            <View className="mt-6 pt-4 items-center flex-row justify-center">
+              <Text className="text-text-muted font-[Inter_400Regular]">Already have an account? </Text>
+              <TouchableOpacity onPress={() => router.push("/auth/login")}>
+                <Text className="text-accent-primary dark:text-text-muted font-[Inter_600SemiBold]">Login</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
 }

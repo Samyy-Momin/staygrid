@@ -45,6 +45,8 @@ model User {
   bookings      Booking[]
   reviews       Review[]
   favorites     Favorite[]
+  pushTokens    PushToken[]
+  notifications Notification[]
 
   @@map("user")
 }
@@ -128,11 +130,13 @@ model Farmhouse {
   nonAcRoomCount Int      @default(0)
   hallCount      Int      @default(0)
   
-  // Beds
+  // Beds & Furniture
   singleBedCount Int      @default(0)
   doubleBedCount Int      @default(0)
   extraMattressCount Int  @default(0)
+  sofaCount      Int      @default(0)
   balconyCount   Int      @default(0)
+  terraceCount   Int      @default(0)
   
   // Kitchen
   hasKitchen    Boolean  @default(false)
@@ -144,10 +148,10 @@ model Farmhouse {
   
   // Indoor Games
   hasCarom      Boolean  @default(false)
-  hasUno        Boolean  @default(false)
-  hasTeenPatti  Boolean  @default(false)
   hasChess      Boolean  @default(false)
   has8BallPool  Boolean  @default(false)
+  hasCricket    Boolean  @default(false)
+  hasBadminton  Boolean  @default(false)
   
   // Electronics
   hasTv         Boolean  @default(false)
@@ -155,8 +159,17 @@ model Farmhouse {
   hasMicrophone Boolean  @default(false)
   hasWifi       Boolean  @default(false)
   
+  // Custom
+  customAmenities String[]
+  hostName        String?
+  
+  // Rating (denormalized)
+  avgRating     Float    @default(0)
+  reviewCount   Int      @default(0)
+
   isBestMatch   Boolean  @default(false)
   isTrusted     Boolean  @default(false)
+  defaultCommissionPercentage Float @default(20.0)
 
   ownerId       String
   owner         User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
@@ -164,11 +177,13 @@ model Farmhouse {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  bookings      Booking[]
-  blockedDates  BlockedDateRange[]
-  offers        Offer[]
-  reviews       Review[]
-  favorites     Favorite[]
+  bookings         Booking[]
+  blockedDates     BlockedDateRange[]
+  offers           Offer[]
+  reviews          Review[]
+  favorites        Favorite[]
+  pricingOverrides PricingOverride[]
+  exploreMedia     ExploreMedia[]
 
   @@map("farmhouse")
 }
@@ -202,9 +217,11 @@ model HeroBanner {
 }
 
 model Review {
-  id          String    @id @default(uuid())
-  rating      Int       @default(5)
-  comment     String?
+  id             String    @id @default(uuid())
+  rating         Int       @default(5)
+  comment        String?
+  groupType      String?   // "Couple" | "Family" | "Friends Group" | "Solo"
+  amenityRatings Json?     // e.g. { pool: 5, cleanliness: 5, turf: 4, hospitality: 5 }
   
   farmhouseId String
   farmhouse   Farmhouse @relation(fields: [farmhouseId], references: [id], onDelete: Cascade)
@@ -271,6 +288,36 @@ model Booking {
   razorpayOrderId String?
   razorpayPaymentId String?
 
+  // Financial Accounting & Commission (20% default or custom)
+  commissionPercentage     Float     @default(20.0)
+  staygridNetCommission    Float     @default(0.0)
+  ownerShareAmount         Float     @default(0.0)
+  ownerPayoutAmount        Float?
+  ownerPayoutStatus        String    @default("PENDING") // "PENDING" | "PAID" | "HOLD"
+  ownerPayoutTxnId         String?
+  ownerPaidAt              DateTime?
+
+  // Cancellation & Refund Override
+  cancellationReason      String?
+  policyRecommendedRefund Float?
+  refundAmount            Float?
+  isCustomRefundOverride  Boolean   @default(false)
+  refundOverrideReason    String?
+  refundStatus            String?   // "PENDING" | "PROCESSED" | "NONE"
+  refundTxnId             String?
+  cancelledAt             DateTime?
+
+  // Cash payment dual confirmation
+  cashPaymentConfirmedByOwner Boolean @default(false)
+  cashPaymentConfirmedByUser  Boolean @default(false)
+  paymentMethod               String? // "ONLINE" | "CASH"
+
+  // Accounting Ledger Closure
+  accountingStatus        String    @default("UNCLOSED") // "UNCLOSED" | "BALANCED_CLOSED"
+
+  // Terms acceptance
+  termsAcceptedAt DateTime?
+
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -288,4 +335,103 @@ model SystemSetting {
   updatedAt   DateTime @updatedAt
 
   @@map("system_setting")
+}
+
+model PricingOverride {
+  id           String    @id @default(uuid())
+  farmhouseId  String
+  farmhouse    Farmhouse @relation(fields: [farmhouseId], references: [id], onDelete: Cascade)
+  date         DateTime
+  price12Hours Float?
+  price24Hours Float?
+  label        String?
+  type         String    // "WEEKEND" | "FESTIVAL" | "CUSTOM"
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([farmhouseId, date])
+  @@map("pricing_override")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String
+  data      Json?
+  dedupeKey String?  @unique
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@map("notification")
+}
+
+model PushToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  platform  String?
+  createdAt DateTime @default(now())
+
+  @@map("push_token")
+}
+
+model FinancialTransaction {
+  id           String   @id @default(uuid())
+  bookingId    String
+  type         String   // "CUSTOMER_TOKEN" | "OWNER_CASH_COLLECTION" | "COMMISSION_OVERRIDE" | "OWNER_SETTLEMENT" | "OWNER_PAYMENT_RECEIVED" | "CUSTOMER_REFUND"
+  amount       Float
+  direction    String   // "INFLOW" | "OUTFLOW" | "ADJUSTMENT"
+  fromEntity   String   // "CUSTOMER" | "STAYGRID" | "OWNER"
+  toEntity     String   // "STAYGRID" | "OWNER" | "CUSTOMER"
+  reference    String?  // UTR number or Razorpay Payment ID
+  reason       String?  // Reason for commission change or custom refund
+  notes        String?
+  performedBy  String?  // Admin User ID / System
+  createdAt    DateTime @default(now())
+
+  @@map("financial_transaction")
+}
+
+model ExploreMedia {
+  id               String     @id @default(uuid())
+  type             String     // "REEL" | "PHOTO"
+  mediaUrl         String     // Video MP4 URL or High-Res Image URL
+  thumbnailUrl     String?    // Video poster image
+  instagramPostUrl String?    // Direct link to Instagram post
+  caption          String?
+  viewCount        Int        @default(0)
+  isFeatured       Boolean    @default(false)
+  farmhouseId      String?
+  farmhouse        Farmhouse? @relation(fields: [farmhouseId], references: [id], onDelete: SetNull)
+  createdAt        DateTime   @default(now())
+
+  @@map("explore_media")
+}
+
+model UserEvent {
+  id          String   @id @default(uuid())
+  userId      String?
+  farmhouseId String?
+  eventType   String   // "VIEW_FARMHOUSE" | "INITIATE_CHECKOUT" | "ABANDON_CHECKOUT"
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@map("user_event")
+}
+
+model MarketingCampaign {
+  id        String   @id @default(uuid())
+  title     String
+  segment   String   // "ALL" | "ABANDONED_CHECKOUT" | "UPCOMING_3DAYS" | "INACTIVE_60DAYS"
+  message   String
+  sentCount Int      @default(0)
+  status    String   @default("COMPLETED")
+  createdAt DateTime @default(now())
+
+  @@map("marketing_campaign")
 }

@@ -14,10 +14,12 @@ async function main() {
   
   const categories = [
     { name: 'Location', filterKey: 'location', order: 1, iconName: 'MapPin' },
-    { name: 'Turf', filterKey: 'hasTurf', order: 2, iconName: 'Tent' },
-    { name: 'Big Pools', filterKey: 'hasPool', order: 3, iconName: 'Droplet' },
-    { name: 'Couple Friendly', filterKey: 'isCoupleFriendly', order: 4, iconName: 'Users' },
-    { name: 'Pet Friendly', filterKey: 'isPetFriendly', order: 5, iconName: 'Dog' },
+    { name: 'Featured', filterKey: 'featured', order: 2, iconName: 'Sparkles' },
+    { name: 'Cancellation Deals', filterKey: 'cancelled', order: 3, iconName: 'Tag' },
+    { name: 'Turf', filterKey: 'hasTurf', order: 4, iconName: 'Tent' },
+    { name: 'Big Pools', filterKey: 'hasPool', order: 5, iconName: 'Droplet' },
+    { name: 'Couple Friendly', filterKey: 'isCoupleFriendly', order: 6, iconName: 'Users' },
+    { name: 'Pet Friendly', filterKey: 'isPetFriendly', order: 7, iconName: 'Dog' },
   ];
 
   for (const category of categories) {

@@ -163,7 +163,7 @@ apps/mobile/app/
 
 #### Minor Details & Micro-Interactions
 - Razorpay verification calls `POST /api/bookings/verify`. HMAC check bypassed cleanly for test modes.
-- Payments automatically trigger dual **SMS Confirmation** and **WhatsApp Invoice** notifications.
+- Successful payments trigger a booking confirmation email and mobile push notification.
 
 #### 💡 Claude UI Improvement Prompt Recommendations
 - **Invoice Breakdown Card**: Apply a subtle ticket-stub layout with dashed dividing line between Total Amount and Token Paid Now.

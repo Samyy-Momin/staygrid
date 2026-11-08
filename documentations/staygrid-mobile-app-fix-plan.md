@@ -145,7 +145,7 @@ PHASE 3 of 8 — Splash Screen & Auth (login.tsx, signup.tsx)
 
 1. Splash screen: audit the current Lottie animation (assets/splash.json) and the native splash configuration (app.json / expo-system-ui). This needs to look intentional and premium on first launch, not placeholder. Specifically check for a flash of the wrong background color between the native splash and the first React-rendered frame — a very common Expo issue, and worth fixing at the native config level (expo-system-ui / splash background color), not just inside the React component tree.
 2. Login/signup: known issue carried over from the original audit — input borders and placeholders currently use gravel-300/500, which is low-contrast against ivory (same family of bug the admin panel had). Move to the corrected tokens.
-3. OTP flow: OTP is delivered via WhatsApp through Twilio, not SMS. Make sure the UI actually tells the user to check WhatsApp specifically, not a generic "check your messages" — and design a clear fallback message for a user without WhatsApp installed, since that's currently a real dead end.
+3. OTP flow: deliver sign-in and signup verification codes by email. Keep the copy clear about which email address receives each code.
 4. This is a new user's actual first impression of the app — treat it with the same care as the booking flow. Simple, obviously branded, nothing to figure out.
 
 Report back per the standing rules.

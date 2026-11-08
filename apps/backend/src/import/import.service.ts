@@ -162,10 +162,10 @@ export class ImportService {
             
             // Indoor Games
             hasCarom: Boolean(row.hasCarom),
-            hasUno: Boolean(row.hasUno),
-            hasTeenPatti: Boolean(row.hasTeenPatti),
             hasChess: Boolean(row.hasChess),
             has8BallPool: Boolean(row.has8BallPool),
+            hasCricket: Boolean(row.hasCricket),
+            hasBadminton: Boolean(row.hasBadminton),
             
             // Electronics
             hasTv: Boolean(row.hasTv),

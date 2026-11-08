@@ -195,7 +195,6 @@ Modules
 - Coupons
 - CRM
 - Kanban
-- WhatsApp Campaigns
 - Push Notifications
 - Homepage CMS
 - Banners

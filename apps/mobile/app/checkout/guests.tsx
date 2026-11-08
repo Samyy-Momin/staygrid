@@ -51,25 +51,24 @@ export default function GuestSelectionScreen() {
 
   const handleContinue = () => {
     const totalGuests = adults + children;
-    const capacity = farmhouse?.capacity || 20;
-    const includedGuests = farmhouse?.maxIncludedGuests || farmhouse?.includedGuests || capacity;
+    const avgCapacity = farmhouse?.capacity || 15;
+    const maxLimit = farmhouse?.maxIncludedGuests || farmhouse?.capacity || 20;
     const extraFeeRate = farmhouse?.extraGuestFee || 0;
-    const maxAllowedLimit = Math.max(100, capacity * 5);
     
-    if (totalGuests > maxAllowedLimit) {
+    if (totalGuests > maxLimit && !extraFeeRate) {
       Alert.alert(
-        "Limit Exceeded", 
-        `Total guest count cannot exceed ${maxAllowedLimit} for this property.`
+        "Maximum Capacity Exceeded", 
+        `This farmhouse has a maximum limit of ${maxLimit} guests.`
       );
       return;
     }
 
-    if (totalGuests > includedGuests && extraFeeRate > 0) {
-      const extraCount = totalGuests - includedGuests;
+    if (totalGuests > avgCapacity && extraFeeRate > 0) {
+      const extraCount = totalGuests - avgCapacity;
       const extraTotal = extraCount * extraFeeRate;
       Alert.alert(
         "Extra Guest Fee Confirmation",
-        `Base stay includes ${includedGuests} guests. For ${extraCount} extra guest(s), an additional fee of ₹${extraFeeRate}/person (Total: +₹${extraTotal.toLocaleString('en-IN')}) will be added to your bill.\n\nDo you agree to this add-on charge?`,
+        `Recommended average capacity is ${avgCapacity} guests. For ${extraCount} extra guest(s), an additional fee of ₹${extraFeeRate}/person (Total: +₹${extraTotal.toLocaleString('en-IN')}) will be added to your bill.\n\nDo you agree to this add-on charge?`,
         [
           { text: "Edit Guests", style: "cancel" },
           {
@@ -112,7 +111,7 @@ export default function GuestSelectionScreen() {
           <View>
             <Text className="text-xs font-[Inter_700Bold] text-[#0066CC] uppercase tracking-wider mb-0.5">Base capacity</Text>
             <Text className="font-[Inter_800ExtraBold] text-text-primary dark:text-surface text-lg">
-              {farmhouse?.includedGuests || farmhouse?.maxIncludedGuests || farmhouse?.capacity || 30} guests included
+              {farmhouse?.capacity || 15} guests included
             </Text>
           </View>
         </View>
@@ -197,20 +196,20 @@ export default function GuestSelectionScreen() {
               <Text className="text-sm font-[Inter_700Bold] text-text-primary dark:text-surface">
                 Total {adults + children} guests
               </Text>
-              <Text className={`text-xs font-[Inter_700Bold] ${(adults + children) <= (farmhouse?.includedGuests || 30) ? 'text-[#10B981]' : 'text-[#0066CC]'}`}>
-                {(adults + children) <= (farmhouse?.includedGuests || 30) ? 'Within capacity' : 'Extra guest fee applies'}
+              <Text className={`text-xs font-[Inter_700Bold] ${(adults + children) <= (farmhouse?.capacity || 15) ? 'text-[#10B981]' : 'text-[#0066CC]'}`}>
+                {(adults + children) <= (farmhouse?.capacity || 15) ? 'Within base capacity' : 'Extra guest fee applies'}
               </Text>
             </View>
 
             {/* Visual Progress Bar */}
             <View className="w-full h-2.5 bg-border/40 dark:bg-border/60 rounded-full overflow-hidden mb-2 relative">
               <View 
-                className={`h-full rounded-full ${(adults + children) <= (farmhouse?.includedGuests || 30) ? 'bg-[#10B981]' : 'bg-[#0066CC]'}`} 
-                style={{ width: `${Math.min(100, ((adults + children) / (farmhouse?.includedGuests || 30)) * 100)}%` }}
+                className={`h-full rounded-full ${(adults + children) <= (farmhouse?.capacity || 15) ? 'bg-[#10B981]' : 'bg-[#0066CC]'}`} 
+                style={{ width: `${Math.min(100, ((adults + children) / (farmhouse?.capacity || 15)) * 100)}%` }}
               />
             </View>
             <Text className="text-[11px] font-[Inter_500Medium] text-text-muted">
-              Marker at {farmhouse?.includedGuests || 30} (included capacity)
+              Base capacity: {farmhouse?.capacity || 15} guests included
             </Text>
           </View>
         </View>

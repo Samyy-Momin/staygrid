@@ -3,4 +3,6 @@ export class CreateReviewDto {
   comment?: string;
   farmhouseId: string;
   userId: string;
+  groupType?: string;
+  amenityRatings?: Record<string, number>;
 }

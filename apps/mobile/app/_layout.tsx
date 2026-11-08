@@ -1,5 +1,6 @@
 import "../global.css";
-import { Stack } from "expo-router";
+import { router, Stack } from "expo-router";
+import * as Notifications from "expo-notifications";
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold, Inter_800ExtraBold } from "@expo-google-fonts/inter";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect, useState } from "react";
@@ -23,13 +24,24 @@ export default function RootLayout() {
  Inter_800ExtraBold,
  });
 
+ useEffect(() => {
+   const openBooking = (response: Notifications.NotificationResponse | null) => {
+     const data = response?.notification.request.content.data as { bookingId?: string } | undefined;
+     if (data?.bookingId) router.push('/bookings/' + data.bookingId);
+   };
+   Notifications.getLastNotificationResponseAsync().then(openBooking).catch(() => {});
+   const subscription = Notifications.addNotificationResponseReceivedListener(openBooking);
+   return () => subscription.remove();
+ }, []);
+
  const [animationFinished, setAnimationFinished] = useState(false);
 
  useEffect(() => {
- if (loaded || error) {
- SplashScreen.hideAsync();
- }
- }, [loaded, error]);
+    if (loaded || error) {
+      SplashScreen.hideAsync();
+      import('../lib/notifications').then(m => m.registerForPushNotificationsAsync().catch(console.error));
+    }
+  }, [loaded, error]);
 
  const colorScheme = useColorScheme();
 

@@ -3,6 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, Modal, StyleSheet, Pressable, 
 import { BlurView } from "expo-blur";
 import { X } from "lucide-react-native";
 import { useThemeColors } from "../lib/theme-colors";
+import { inputStyles } from "../lib/input-styles";
 
 interface GuestCountModalProps {
   visible: boolean;
@@ -71,9 +72,10 @@ export function GuestCountModal({
               Enter exact count ({minValue} - {maxValue}):
             </Text>
 
-            <View className="w-full h-14 bg-surface dark:bg-border border border-border dark:border-border rounded-xl px-4 justify-center mb-6">
+            <View className="w-full h-14 bg-surface dark:bg-border border border-border dark:border-border rounded-xl px-4 justify-center items-center mb-6">
               <TextInput
-                className="w-full h-full text-center text-2xl font-[Inter_700Bold] text-text-primary dark:text-surface p-0"
+                className="w-full text-center text-2xl font-[Inter_700Bold] text-text-primary dark:text-surface"
+                style={[inputStyles.numberModal, { color: colors.textPrimary }]}
                 keyboardType="number-pad"
                 value={val}
                 maxLength={3}

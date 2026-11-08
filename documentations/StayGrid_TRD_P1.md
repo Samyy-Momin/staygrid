@@ -57,7 +57,6 @@ StayGrid is a farmhouse booking marketplace connecting customers with verified f
 - Redis: Upstash
 - Storage: Cloudinary
 - Push: Firebase Cloud Messaging
-- WhatsApp: Meta Cloud API
 - Payments: Razorpay
 
 # Customer App Modules
@@ -112,7 +111,6 @@ StayGrid is a farmhouse booking marketplace connecting customers with verified f
 - Featured Listings
 - Advertisement Manager
 - Push Notifications
-- WhatsApp Campaigns
 - Reports
 - Analytics
 - Roles & Permissions
