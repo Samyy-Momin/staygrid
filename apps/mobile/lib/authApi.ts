@@ -3,16 +3,11 @@ import { getApiUrl } from "./config";
 
 const API_URL = getApiUrl();
 
-// ALWAYS send localhost:3000 as Origin to perfectly bypass BetterAuth's strict CSRF checks on mobile!
-// Since we change Wi-Fi IP addresses, dynamically setting it to 192.x.x.x causes 403 Forbidden.
-const dynamicOrigin = "http://localhost:3000";
-
 // Create axios instance
 export const api = axios.create({
   baseURL: API_URL,
   headers: {
     "Content-Type": "application/json",
-    "Origin": dynamicOrigin,
   },
   withCredentials: true,
 });
@@ -47,16 +42,11 @@ export const authApi = {
   },
 
   async signIn(identifier: string, password: string) {
-    let emailToUse = identifier;
-    if (identifier.startsWith('+91') || /^\d+$/.test(identifier.replace('+', ''))) {
-      try {
-        const resolveRes = await api.post("/api/auth/resolve-phone", { phone: identifier });
-        emailToUse = resolveRes.data.email;
-      } catch (e: any) {
-        throw new Error("No account found with this phone number");
-      }
+    const email = identifier.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new Error("Please use your email address to sign in");
     }
-    const res = await api.post("/api/auth/sign-in/email", { email: emailToUse, password });
+    const res = await api.post("/api/auth/sign-in/email", { email, password });
     return res.data;
   },
 

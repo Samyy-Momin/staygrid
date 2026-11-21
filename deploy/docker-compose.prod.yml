@@ -1,0 +1,78 @@
+# Production stack on ONE small VPS (2 vCPU / 4 GB is plenty to start; Mumbai region).
+#   cd deploy && cp .env.example .env && (fill it in) && docker compose -f docker-compose.prod.yml up -d --build
+# Memory budget (approx): postgres 150 MB, backend 180 MB, admin 120 MB, sites 120 MB, caddy 30 MB.
+name: staygrid
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: staygrid
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_DB: staygrid
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U staygrid"]
+      interval: 10s
+      retries: 5
+    # Not published to the internet; only reachable by the other containers.
+
+  backend:
+    build: { context: .., dockerfile: apps/backend/Dockerfile }
+    restart: unless-stopped
+    env_file: ./backend.env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://staygrid:${POSTGRES_PASSWORD}@postgres:5432/staygrid?schema=public
+      SITES_ROOT_DOMAIN: ${ROOT_DOMAIN}
+      SITES_API_KEY: ${SITES_API_KEY:?set SITES_API_KEY in deploy/.env}
+      SITES_REVALIDATE_URL: http://sites:3002/api/revalidate
+      BETTER_AUTH_URL: https://api.${ROOT_DOMAIN}
+      CORS_ORIGINS: https://admin.${ROOT_DOMAIN}
+      AUTH_TRUSTED_ORIGINS: https://admin.${ROOT_DOMAIN}
+    depends_on:
+      postgres: { condition: service_healthy }
+    mem_limit: 512m
+
+  sites:
+    build: { context: .., dockerfile: apps/sites/Dockerfile }
+    restart: unless-stopped
+    environment:
+      API_URL: http://backend:3000/api
+      SITES_API_KEY: ${SITES_API_KEY}
+    depends_on: [backend]
+    mem_limit: 384m
+
+  admin:
+    build:
+      context: ..
+      dockerfile: apps/admin-erp/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: https://api.${ROOT_DOMAIN}/api
+        NEXT_PUBLIC_SITES_ROOT_DOMAIN: ${ROOT_DOMAIN}
+        NEXT_PUBLIC_SUPPORT_PHONE: ${SUPPORT_PHONE:-}
+        NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: ${ADMIN_MAPS_KEY:-}
+    restart: unless-stopped
+    depends_on: [backend]
+    mem_limit: 384m
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      ROOT_DOMAIN: ${ROOT_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [backend, sites, admin]
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

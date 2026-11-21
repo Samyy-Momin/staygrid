@@ -9,15 +9,6 @@ paths:
           description: ""
       tags:
         - App
-  /api/auth/resolve-phone:
-    post:
-      operationId: AuthController_resolvePhone
-      parameters: []
-      responses:
-        "201":
-          description: ""
-      tags: &a1
-        - Auth
   /api/auth/mobile-otp/send:
     post:
       operationId: AuthController_sendMobileOtp
@@ -25,7 +16,7 @@ paths:
       responses:
         "201":
           description: ""
-      tags: *a1
+      tags: &a1
   /api/auth/mobile-otp/verify:
     post:
       operationId: AuthController_verifyMobileOtp
@@ -827,7 +818,7 @@ paths:
       tags: *a7
   /api/geo/autocomplete:
     get:
-      description: Proxies to Photon API for search-as-you-type address suggestions.
+      description: Proxies to Google Places API for search-as-you-type address suggestions.
       operationId: GeoController_autocomplete
       parameters:
         - name: q
@@ -850,7 +841,7 @@ paths:
         - Geo
   /api/geo/directions:
     get:
-      description: Proxies to OSRM API for driving directions.
+      description: Proxies to Google Routes API for driving directions.
       operationId: GeoController_getDirections
       parameters:
         - name: from

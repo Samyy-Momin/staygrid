@@ -21,6 +21,8 @@ export default function CheckoutScreen() {
   const [bookingLoading, setBookingLoading] = useState(false);
   const [razorpayOrder, setRazorpayOrder] = useState<any>(null);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
+  const [checkoutQuote, setCheckoutQuote] = useState<{ totalAmount: number; tokenPaid: number } | null>(null);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   
   const [guestCount, setGuestCount] = useState<number>(parseInt(adults as string || '20', 10));
   const [email, setEmail] = useState("");
@@ -86,8 +88,9 @@ export default function CheckoutScreen() {
   }
   
   const totalAmount = subtotalAmount + parsedExtraFee;
-  const tokenAmount = farmhouse?.tokenAmount || 2000; 
-  const remainingDue = Math.max(0, totalAmount - tokenAmount);
+  const displayTotalAmount = checkoutQuote?.totalAmount ?? totalAmount;
+  const tokenAmount = checkoutQuote?.tokenPaid ?? Math.min(displayTotalAmount, farmhouse?.tokenAmount || 2000);
+  const remainingDue = Math.max(0, displayTotalAmount - tokenAmount);
 
   const formatDate = (dateStr: string) => {
     if (!dateStr) return "";
@@ -106,7 +109,9 @@ export default function CheckoutScreen() {
     if (modifier === 'PM' && hours < 12) hours += 12;
     if (modifier === 'AM' && hours === 12) hours = 0;
 
-    return `${dateString}T${hours.toString().padStart(2, '0')}:${minutes}:00.000Z`;
+    const [year, month, day] = dateString.split('-').map(Number);
+    const utcMillis = Date.UTC(year, month - 1, day, hours, Number(minutes)) - 5.5 * 60 * 60 * 1000;
+    return new Date(utcMillis).toISOString();
   };
 
   const handlePay = async () => {
@@ -145,16 +150,24 @@ export default function CheckoutScreen() {
         checkOut: combinedCheckOut,
         adults: parsedAdults,
         children: parsedChildren,
+        bookingType: typeof type === 'string' ? type : '24H',
+        termsAcceptedAt: new Date().toISOString(),
       };
       if (typeof notes === 'string' && notes.trim().length > 0) {
         bookingPayload.notes = notes.trim();
       }
 
       const res = await api.post("/api/bookings", bookingPayload);
-      
+      const serverQuote = {
+        totalAmount: Number(res.data.totalAmount),
+        tokenPaid: Number(res.data.tokenPaid),
+      };
+      setCheckoutQuote(serverQuote);
       setRazorpayOrder({
-        orderId: res.data.razorpayOrderId || `order_${res.data.id?.substring(0,8)}`,
-        amount: tokenAmount * 100,
+        orderId: res.data.razorpayOrderId,
+        amount: Math.round(serverQuote.tokenPaid * 100),
+        keyId: res.data.razorpayKeyId,
+        currency: 'INR',
         bookingId: res.data.id,
       });
 
@@ -162,8 +175,8 @@ export default function CheckoutScreen() {
         booking_id: res.data.id,
         farmhouse_id: id,
         farmhouse_title: farmhouse?.title,
-        total_amount: totalStayPrice,
-        token_amount: tokenAmount,
+        total_amount: serverQuote.totalAmount,
+        token_amount: serverQuote.tokenPaid,
         check_in: combinedCheckIn,
         check_out: combinedCheckOut,
         adults: parsedAdults,
@@ -228,15 +241,19 @@ export default function CheckoutScreen() {
     try {
       const data = JSON.parse(event.nativeEvent.data);
       if (data.event === 'payment_success') {
-        const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = data.data;
+      const { razorpay_payment_id, razorpay_order_id, razorpay_signature } = data.data || {};
+      if (!razorpay_payment_id || !razorpay_order_id || !razorpay_signature) {
+        throw new Error('Razorpay did not return complete payment verification details.');
+      }
         
         const verifyRes = await api.post("/api/bookings/verify", {
-          razorpayPaymentId: razorpay_payment_id || `pay_test_${Date.now()}`,
-          razorpayOrderId: razorpay_order_id || razorpayOrder?.orderId,
-          razorpaySignature: razorpay_signature || 'dummy_sig',
+          razorpayPaymentId: razorpay_payment_id,
+          razorpayOrderId: razorpay_order_id,
+          razorpaySignature: razorpay_signature,
         });
 
-        const confirmedId = verifyRes?.data?.bookingId || razorpayOrder?.bookingId;
+        const confirmedId = verifyRes?.data?.booking?.id;
+        if (!confirmedId) throw new Error('Payment was verified but the booking confirmation was not returned.');
         if (confirmedId) {
           setCompletedBookingId(confirmedId);
         }
@@ -245,8 +262,8 @@ export default function CheckoutScreen() {
           booking_id: confirmedId,
           farmhouse_id: id,
           farmhouse_title: farmhouse?.title,
-          total_amount: totalStayPrice,
-          token_paid: tokenAmount,
+          total_amount: checkoutQuote?.totalAmount,
+          token_paid: checkoutQuote?.tokenPaid,
           adults: parsedAdults,
           children: parsedChildren,
           payment_id: razorpay_payment_id,
@@ -308,9 +325,9 @@ export default function CheckoutScreen() {
 
         <TouchableOpacity 
           className="bg-[#0066CC] w-full py-4 rounded-2xl items-center mb-3 shadow-md"
-          onPress={() => router.replace({ pathname: "/checkout/social-follow", params: { farmhouseId: id, bookingId: completedBookingId || razorpayOrder?.bookingId } })}
+          onPress={() => router.replace(`/bookings/${completedBookingId}`)}
         >
-          <Text className="text-white font-[Inter_700Bold] text-base">Accept Guidelines & Continue →</Text>
+          <Text className="text-white font-[Inter_700Bold] text-base">View Booking Ticket</Text>
         </TouchableOpacity>
       </SafeAreaView>
     );
@@ -322,14 +339,13 @@ export default function CheckoutScreen() {
     <head><meta name="viewport" content="width=device-width, initial-scale=1"></head>
     <body style="background-color: #f8fafc; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; padding: 20px; text-align: center;">
       <h2 style="font-family: system-ui, sans-serif; color: #0066CC; margin-bottom: 8px;">StayGrid Secure Payment</h2>
-      <p style="font-family: system-ui, sans-serif; color: #64748b; font-size: 14px; margin-bottom: 24px;">Opening gateway for Token Payment (₹${tokenAmount})...</p>
-      <button onclick="window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'payment_success', data: { razorpay_payment_id: 'pay_sim_' + Date.now(), razorpay_order_id: '${razorpayOrder.orderId}', razorpay_signature: 'sim_sig' } }))" style="padding: 16px 32px; background: #10B981; color: white; border: none; border-radius: 16px; font-size: 16px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 12px rgba(16,185,129,0.3);">Confirm & Pay Token Now →</button>
+      <p style="font-family: system-ui, sans-serif; color: #64748b; font-size: 14px; margin-bottom: 24px;">Opening gateway for Token Payment (₹${razorpayOrder.tokenPaid})...</p>
       <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
       <script>
       setTimeout(() => {
         try {
           var options = {
-            "key": "rzp_test_T99KZjkGQn4lMz", 
+            "key": "${razorpayOrder.keyId}",
             "amount": "${razorpayOrder.amount}",
             "currency": "INR",
             "name": "StayGrid Booking",
@@ -360,12 +376,6 @@ export default function CheckoutScreen() {
           domStorageEnabled={true}
           mixedContentMode="always"
         />
-        <TouchableOpacity 
-          className="m-4 p-4 bg-[#10B981] rounded-2xl items-center shadow-md"
-          onPress={() => handleWebViewMessage({ nativeEvent: { data: JSON.stringify({ event: 'payment_success', data: { razorpay_payment_id: `pay_test_${Date.now()}`, razorpay_order_id: razorpayOrder.orderId, razorpay_signature: 'dummy_sig' } }) } })}
-        >
-          <Text className="text-white font-[Inter_700Bold] text-base">Complete Test Payment (Demo Mode)</Text>
-        </TouchableOpacity>
       </SafeAreaView>
     );
   }
@@ -509,7 +519,7 @@ export default function CheckoutScreen() {
         
         <View className="flex-row justify-between items-center mb-3">
           <Text className="text-text-primary dark:text-surface font-[Inter_700Bold] text-base">Total Amount</Text>
-          <Text className="text-text-primary dark:text-surface font-[Inter_800ExtraBold] text-lg">₹{totalAmount.toLocaleString('en-IN')}</Text>
+          <Text className="text-text-primary dark:text-surface font-[Inter_800ExtraBold] text-lg">₹{displayTotalAmount.toLocaleString('en-IN')}</Text>
         </View>
 
         <View className="bg-surface dark:bg-border/40 p-4 rounded-2xl mb-6 border border-border dark:border-border">
@@ -519,9 +529,22 @@ export default function CheckoutScreen() {
           </View>
           <View className="flex-row justify-between items-center pt-2">
             <Text className="text-text-muted font-[Inter_600SemiBold] text-xs">Remaining Due (Pay at Check-in)</Text>
-            <Text className="text-[#10B981] font-[Inter_800ExtraBold] text-base">₹{remainingDue.toLocaleString('en-IN')}</Text>
+          <Text className="text-[#10B981] font-[Inter_800ExtraBold] text-base">₹{remainingDue.toLocaleString('en-IN')}</Text>
           </View>
         </View>
+        <TouchableOpacity
+          className="flex-row items-start mb-6"
+          onPress={() => setTermsAccepted((accepted) => !accepted)}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: termsAccepted }}
+        >
+          <View className={`w-5 h-5 rounded border mr-3 items-center justify-center ${termsAccepted ? 'bg-[#0066CC] border-[#0066CC]' : 'border-border'}`}>
+            {termsAccepted ? <CheckCircle2 size={15} color="#FFFFFF" /> : null}
+          </View>
+          <Text className="flex-1 text-xs text-text-muted">
+            I agree to the <Text className="text-accent-primary" onPress={() => router.push('/checkout/terms')}>booking terms and cancellation policy</Text>.
+          </Text>
+        </TouchableOpacity>
         <View className="mb-28">
           <StayGridTextArea
             label="Additional Note for Host / Admin"
@@ -549,12 +572,12 @@ export default function CheckoutScreen() {
         <TouchableOpacity 
           className="flex-1 bg-[#10B981] py-4 rounded-2xl items-center shadow-md"
           onPress={handlePay}
-          disabled={bookingLoading}
+          disabled={bookingLoading || !termsAccepted}
         >
           {bookingLoading ? (
             <ActivityIndicator color="white" />
           ) : (
-            <Text className="text-white font-[Inter_700Bold] text-sm">Pay Token (₹{tokenAmount})</Text>
+            <Text className="text-white font-[Inter_700Bold] text-sm">{termsAccepted ? `Pay ₹${tokenAmount}` : 'Accept terms to continue'}</Text>
           )}
         </TouchableOpacity>
       </View>

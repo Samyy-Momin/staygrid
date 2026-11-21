@@ -2,6 +2,8 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePricingOverrideDto, BulkWeekendPricingDto } from './dto/create-pricing-override.dto';
 import { validateFarmhousePrices } from '../common/utils/price-validator';
+import { istDay } from '../common/utils/ist-date';
+import { Role } from '@prisma/client';
 
 @Injectable()
 export class PricingService {
@@ -12,8 +14,8 @@ export class PricingService {
 
     if (month && /^\d{4}-\d{2}$/.test(month)) {
       const [year, m] = month.split('-').map(Number);
-      const startOfMonth = new Date(year, m - 1, 1);
-      const endOfMonth = new Date(year, m, 0, 23, 59, 59, 999);
+      const startOfMonth = new Date(Date.UTC(year, m - 1, 1));
+      const endOfMonth = new Date(Date.UTC(year, m, 0, 23, 59, 59, 999));
       whereClause.date = {
         gte: startOfMonth,
         lte: endOfMonth,
@@ -26,7 +28,15 @@ export class PricingService {
     });
   }
 
-  async createOrUpdateOverride(dto: CreatePricingOverrideDto) {
+  private async assertOwnerAccess(farmhouseId: string, actorId: string, role: Role) {
+    if (role === Role.ADMIN) return;
+    const farmhouse = await this.prisma.farmhouse.findUnique({ where: { id: farmhouseId }, select: { ownerId: true } });
+    if (!farmhouse) throw new NotFoundException('Farmhouse not found');
+    if (farmhouse.ownerId !== actorId) throw new BadRequestException('You do not own this farmhouse');
+  }
+
+  async createOrUpdateOverride(dto: CreatePricingOverrideDto, actorId: string, role: Role) {
+    await this.assertOwnerAccess(dto.farmhouseId, actorId, role);
     const farmhouse = await this.prisma.farmhouse.findUnique({ where: { id: dto.farmhouseId } });
     if (!farmhouse) {
       throw new NotFoundException(`Farmhouse not found`);
@@ -40,8 +50,7 @@ export class PricingService {
       throw new BadRequestException(priceValidation.error);
     }
 
-    const targetDate = new Date(dto.date);
-    targetDate.setHours(0, 0, 0, 0);
+    const targetDate = istDay(dto.date);
 
     return this.prisma.pricingOverride.upsert({
       where: {
@@ -67,7 +76,8 @@ export class PricingService {
     });
   }
 
-  async bulkSetWeekendPricing(dto: BulkWeekendPricingDto) {
+  async bulkSetWeekendPricing(dto: BulkWeekendPricingDto, actorId: string, role: Role) {
+    await this.assertOwnerAccess(dto.farmhouseId, actorId, role);
     const farmhouse = await this.prisma.farmhouse.findUnique({ where: { id: dto.farmhouseId } });
     if (!farmhouse) {
       throw new NotFoundException(`Farmhouse not found`);
@@ -81,18 +91,20 @@ export class PricingService {
       throw new BadRequestException(priceValidation.error);
     }
 
-    const start = new Date(dto.startDate);
-    const end = new Date(dto.endDate);
+    const start = istDay(dto.startDate);
+    const end = istDay(dto.endDate);
     const cur = new Date(start);
+    if (end.getTime() - start.getTime() > 400 * 86_400_000) {
+      throw new BadRequestException('Weekend pricing range cannot exceed about 13 months');
+    }
 
     const createdRecords = [];
 
     while (cur <= end) {
-      const day = cur.getDay();
+      const day = cur.getUTCDay();
       // 0 = Sunday, 6 = Saturday
       if (day === 0 || day === 6) {
         const targetDate = new Date(cur);
-        targetDate.setHours(0, 0, 0, 0);
 
         const rec = await this.prisma.pricingOverride.upsert({
           where: {
@@ -118,15 +130,16 @@ export class PricingService {
         });
         createdRecords.push(rec);
       }
-      cur.setDate(cur.getDate() + 1);
+      cur.setUTCDate(cur.getUTCDate() + 1);
     }
 
     return { message: `Updated ${createdRecords.length} weekend pricing overrides`, records: createdRecords };
   }
 
-  async deleteOverride(id: string) {
-    const existing = await this.prisma.pricingOverride.findUnique({ where: { id } });
+  async deleteOverride(id: string, actorId: string, role: Role) {
+    const existing = await this.prisma.pricingOverride.findUnique({ where: { id }, select: { id: true, farmhouseId: true } });
     if (!existing) throw new NotFoundException('Pricing override not found');
+    await this.assertOwnerAccess(existing.farmhouseId, actorId, role);
     return this.prisma.pricingOverride.delete({ where: { id } });
   }
 }

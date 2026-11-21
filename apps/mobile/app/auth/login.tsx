@@ -9,6 +9,7 @@ import { useThemeColors } from "../../lib/theme-colors";
 import { StayGridTextField, StayGridOtpField } from "../../components/ui/StayGridTextField";
 import { mixpanel } from "../../lib/mixpanel";
 import { registerForPushNotificationsAsync } from "../../lib/notifications";
+import { homeRouteFor } from "../../lib/ownerApi";
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -27,15 +28,8 @@ export default function LoginScreen() {
     setError("");
     setLoading(true);
     try {
-      let finalIdentifier = identifier.trim();
-      if (!finalIdentifier.includes('@') && /^\d{10}$/.test(finalIdentifier)) {
-        finalIdentifier = `+91${finalIdentifier}`;
-      } else if (!finalIdentifier.includes('@') && /^\d+$/.test(finalIdentifier) && !finalIdentifier.startsWith('+')) {
-        finalIdentifier = `+91${finalIdentifier}`;
-      }
-
       if (loginMethod === "password") {
-        await authApi.signIn(finalIdentifier, password.trim());
+        await authApi.signIn(identifier, password.trim());
       } else {
         await authApi.signInEmailOtp(identifier.trim(), otp.trim());
       }
@@ -56,7 +50,7 @@ export default function LoginScreen() {
         });
       }
       await registerForPushNotificationsAsync();
-      router.replace("/(tabs)/home");
+      router.replace(homeRouteFor(session?.user) as any);
     } catch (err: any) {
       setError(err.message || "Login failed");
     } finally {
@@ -120,10 +114,11 @@ export default function LoginScreen() {
             ) : (
               <StayGridTextField
                 key="email-input"
-                label="Email or Phone Number"
+                label="Email Address"
                 value={identifier}
                 onChangeText={(text) => setIdentifier(text.trim())}
-                placeholder="Enter email or phone"
+                placeholder="Enter your email"
+                keyboardType="email-address"
                 autoCapitalize="none"
               />
             )}

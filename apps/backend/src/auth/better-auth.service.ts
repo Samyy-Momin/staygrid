@@ -10,6 +10,9 @@ export class BetterAuthService {
   public auth: any;
 
   constructor(public prisma: PrismaService) {
+    if (process.env.NODE_ENV === 'production' && (!process.env.BETTER_AUTH_URL || !process.env.AUTH_TRUSTED_ORIGINS)) {
+      throw new Error('BETTER_AUTH_URL and AUTH_TRUSTED_ORIGINS are required in production');
+    }
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST || 'smtp.gmail.com',
       port: Number(process.env.SMTP_PORT || 587),
@@ -29,9 +32,12 @@ export class BetterAuthService {
       },
       user: {
         additionalFields: {
+          // input:false — clients must never set their own role via sign-up or update-user.
           role: {
             type: 'string',
             required: false,
+            input: false,
+            defaultValue: 'CUSTOMER',
           },
           phone: {
             type: 'string',
@@ -47,14 +53,28 @@ export class BetterAuthService {
           }
         },
       },
-      baseURL: 'http://localhost:3000',
-      trustedOrigins: [
+      // Brute-force protection on login/OTP (Better Auth's limiter; stricter than the global API limit).
+      rateLimit: {
+        enabled: process.env.NODE_ENV === 'production',
+        window: 60,
+        max: 30,
+        customRules: {
+          '/sign-in/email': { window: 60, max: 5 },
+          '/email-otp/send-verification-otp': { window: 60, max: 3 },
+          '/sign-in/email-otp': { window: 60, max: 5 },
+        },
+      },
+      advanced: { ipAddress: { ipAddressHeaders: ['x-forwarded-for', 'x-real-ip'] } },
+      baseURL: process.env.BETTER_AUTH_URL || 'http://localhost:3000',
+      trustedOrigins: process.env.AUTH_TRUSTED_ORIGINS
+        ? process.env.AUTH_TRUSTED_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean)
+        : [
         'http://localhost:3001',
         'http://localhost:3002',
         'http://127.0.0.1:3001',
         'http://192.168.1.8:3000',
         'http://192.168.1.8:8081',
-      ],
+        ],
       plugins: [
         emailOTP({
           otpLength: 6,

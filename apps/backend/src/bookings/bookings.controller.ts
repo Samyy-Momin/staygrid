@@ -9,6 +9,7 @@ import {
   Res,
   Patch,
   Query,
+  Headers,
 } from '@nestjs/common';
 import { BookingsService } from './bookings.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
@@ -18,6 +19,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { Role } from '@prisma/client';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Request } from 'express';
+import { SkipThrottle } from '@nestjs/throttler';
 
 interface AuthenticatedRequest extends Request {
   user: { id: string; [key: string]: any };
@@ -27,6 +29,15 @@ interface AuthenticatedRequest extends Request {
 @Controller('bookings')
 export class BookingsController {
   constructor(private readonly bookingsService: BookingsService) {}
+
+  @Post('webhook')
+  @SkipThrottle()
+  async razorpayWebhook(
+    @Req() req: Request & { rawBody?: Buffer },
+    @Headers('x-razorpay-signature') signature?: string,
+  ) {
+    return this.bookingsService.handleRazorpayWebhook(req.rawBody, signature);
+  }
 
   @Post()
   @UseGuards(RolesGuard)
@@ -133,10 +144,11 @@ export class BookingsController {
     description: 'Creates a confirmed booking on behalf of an end user',
   })
   async createAdminBooking(
+    @Req() req: AuthenticatedRequest,
     @Body() createBookingDto: CreateBookingDto & { userId: string },
   ) {
     const { userId, ...dto } = createBookingDto;
-    return this.bookingsService.createAdminBooking(dto, userId);
+    return this.bookingsService.createAdminBooking(dto, userId, req.user.id, req.user.role);
   }
 
   @Get(':id/invoice')
@@ -152,7 +164,7 @@ export class BookingsController {
     @Req() req: AuthenticatedRequest,
     @Res() res: any,
   ) {
-    return this.bookingsService.generateInvoicePdf(id, res);
+    return this.bookingsService.generateInvoicePdf(id, res, req.user.id, req.user.role);
   }
 
   @Post('save')
@@ -179,9 +191,10 @@ export class BookingsController {
   })
   async rearrangeBooking(
     @Param('id') id: string,
+    @Req() req: AuthenticatedRequest,
     @Body() body: { checkIn: string; checkOut: string },
   ) {
-    return this.bookingsService.rearrangeBooking(id, body.checkIn, body.checkOut);
+    return this.bookingsService.rearrangeBooking(id, body.checkIn, body.checkOut, req.user.id, req.user.role);
   }
 
   @Patch(':id/cancel')
@@ -196,7 +209,7 @@ export class BookingsController {
     @Req() req: AuthenticatedRequest,
     @Body('reason') reason?: string,
   ) {
-    return this.bookingsService.cancelBooking(id, req.user.id, reason);
+    return this.bookingsService.cancelBooking(id, req.user.id, req.user.role, reason);
   }
 
   @Patch(':id/confirm-cash')

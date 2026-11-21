@@ -25,9 +25,16 @@ export default function RootLayout() {
  });
 
  useEffect(() => {
+   // Tapping a push opens the screen it is about.
    const openBooking = (response: Notifications.NotificationResponse | null) => {
-     const data = response?.notification.request.content.data as { bookingId?: string } | undefined;
-     if (data?.bookingId) router.push('/bookings/' + data.bookingId);
+     const data = response?.notification.request.content.data as
+       | { bookingId?: string; ownerBookingId?: string; enquiryId?: string; websiteId?: string }
+       | undefined;
+     if (!data) return;
+     if (data.enquiryId) router.push('/owner/requests');
+     else if (data.ownerBookingId) router.push('/owner/bookings');
+     else if (data.websiteId) router.push('/owner/alerts');
+     else if (data.bookingId) router.push('/bookings/' + data.bookingId);
    };
    Notifications.getLastNotificationResponseAsync().then(openBooking).catch(() => {});
    const subscription = Notifications.addNotificationResponseReceivedListener(openBooking);

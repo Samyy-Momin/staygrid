@@ -1,0 +1,105 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  /* Primitives - Fixed Hex Values */
+  --primitive-ivory: #FBFBF9;
+  --primitive-charcoal-900: #3A3A3C;
+  --primitive-charcoal-700: #76766E;
+  --primitive-charcoal-600: #68685F;
+  --primitive-gravel-300: #CFCFC8;
+  --primitive-gravel-500: #9B9B9B;
+  --primitive-gravel-950: #1C1C1E;
+  --primitive-gold: #D4AF37;
+  --primitive-pool-blue: #0066CC;
+  --primitive-palm-green: #228B22;
+  --primitive-success: #10B981;
+  --primitive-warning: #F59E0B;
+  --primitive-danger: #EF4444;
+
+  /* Semantic Tokens - Light Mode */
+  --surface: var(--primitive-ivory);
+  --text-primary: var(--primitive-charcoal-900);
+  --text-muted: var(--primitive-charcoal-600);
+  --border: var(--primitive-gravel-300);
+  --border-strong: var(--primitive-charcoal-700);
+  --accent-primary: var(--primitive-pool-blue);
+  --accent-premium: var(--primitive-gold);
+  --accent-nature: var(--primitive-palm-green);
+  --success: var(--primitive-success);
+  --warning: var(--primitive-warning);
+  --danger: var(--primitive-danger);
+  
+  --shadow-color: 58 58 60; /* charcoal-900 RGB for opacity usage */
+}
+
+.dark {
+  /* Semantic Tokens - Dark Mode */
+  --surface: var(--primitive-gravel-950);
+  --text-primary: var(--primitive-ivory);
+  --text-muted: var(--primitive-gravel-500);
+  --border: var(--primitive-charcoal-700);
+  --border-strong: var(--primitive-gravel-300);
+  
+  --shadow-color: 0 0 0; /* pure black RGB for dark mode shadows */
+}
+
+@theme inline {
+  /* Expose Semantic Tokens to Tailwind */
+  --color-surface: var(--surface);
+  --color-text-primary: var(--text-primary);
+  --color-text-muted: var(--text-muted);
+  /* Short aliases used across pages as text-primary / text-muted */
+  --color-primary: var(--text-primary);
+  --color-muted: var(--text-muted);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-accent-primary: var(--accent-primary);
+  --color-accent-premium: var(--accent-premium);
+  --color-accent-nature: var(--accent-nature);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  
+  --color-white: #ffffff;
+  --color-black: #000000;
+  --color-transparent: transparent;
+
+  --font-sans: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  --font-mono: var(--font-geist-mono), monospace;
+
+  /* Typography Scale */
+  --text-display: 2.5rem;
+  --text-display--line-height: 1.2;
+  --text-h1: 2rem;
+  --text-h1--line-height: 1.2;
+  --text-h2: 1.5rem;
+  --text-h2--line-height: 1.3;
+  --text-h3: 1.25rem;
+  --text-h3--line-height: 1.4;
+  --text-body: 1rem;
+  --text-body--line-height: 1.5;
+  --text-body-sm: 0.875rem;
+  --text-body-sm--line-height: 1.5;
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1.4;
+
+  /* Elevation (Shadows) */
+  --shadow-card-rest: 0 2px 8px -2px rgb(var(--shadow-color) / 0.08), 0 1px 4px -1px rgb(var(--shadow-color) / 0.04);
+  --shadow-card-hover: 0 8px 24px -4px rgb(var(--shadow-color) / 0.12), 0 4px 12px -2px rgb(var(--shadow-color) / 0.08);
+  --shadow-modal: 0 20px 40px -8px rgb(var(--shadow-color) / 0.2);
+
+  /* Radius */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+}
+
+body {
+  background: var(--surface);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}

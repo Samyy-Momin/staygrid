@@ -7,6 +7,7 @@ import {
   Get,
   Delete,
   Param,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
@@ -21,6 +22,9 @@ import { CreateCustomerDto } from './dto/create-customer.dto';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { Role } from '@prisma/client';
+import { Request } from 'express';
+
+interface AuthenticatedRequest extends Request { user: { id: string; role: Role } }
 
 @ApiTags('Users (Admins & Owners)')
 @ApiBearerAuth()
@@ -47,8 +51,8 @@ export class UsersController {
     description:
       'Returns a list of all mobile app users. System Admin & Owners.',
   })
-  async getCustomers() {
-    return this.usersService.findAllCustomers();
+  async getCustomers(@Req() req: AuthenticatedRequest) {
+    return this.usersService.findAllCustomers(req.user.id, req.user.role);
   }
 
   @Post('customer')
@@ -68,6 +72,8 @@ export class UsersController {
   }
 
   @Post('owner')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Create Owner Admin',

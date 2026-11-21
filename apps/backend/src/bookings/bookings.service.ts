@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
@@ -12,37 +13,71 @@ import * as crypto from 'crypto';
 
 import { NotificationsService } from '../notifications/notifications.service';
 import { MailService } from '../mail/mail.service';
+import { istDay } from '../common/utils/ist-date';
+
+/**
+ * Snapshot the farmhouse's negotiated commission onto the booking at creation time,
+ * so later rate changes never rewrite history and finance reports use the real rate.
+ */
+export function commissionSnapshot(totalAmount: number, defaultCommissionPercentage: number | null | undefined) {
+  const commissionPercentage = Number(defaultCommissionPercentage ?? 20);
+  const staygridNetCommission = Math.round(totalAmount * commissionPercentage) / 100;
+  return {
+    commissionPercentage,
+    staygridNetCommission,
+    ownerShareAmount: Math.round((totalAmount - staygridNetCommission) * 100) / 100,
+  };
+}
 
 @Injectable()
 export class BookingsService {
-  private razorpay: any;
+  private get razorpay(): Razorpay {
+    const keyId = this.configService.get<string>('RAZORPAY_KEY_ID');
+    const keySecret = this.configService.get<string>('RAZORPAY_KEY_SECRET');
+    if (!keyId || !keySecret) {
+      throw new ServiceUnavailableException('Online payments are not configured');
+    }
+    if (process.env.NODE_ENV === 'production' && keyId.startsWith('rzp_test_')) {
+      throw new ServiceUnavailableException('Live Razorpay credentials are required in production');
+    }
+    return new Razorpay({ key_id: keyId, key_secret: keySecret });
+  }
 
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
     private notificationsService: NotificationsService,
     private mailService: MailService,
-  ) {
-    this.razorpay = new Razorpay({
-      key_id: this.configService.get('RAZORPAY_KEY_ID'),
-      key_secret: this.configService.get('RAZORPAY_KEY_SECRET'),
-    });
-  }
+  ) {}
 
   async createBooking(createBookingDto: CreateBookingDto, userId: string) {
     const farmhouse = await this.prisma.farmhouse.findUnique({
       where: { id: createBookingDto.farmhouseId },
     });
     if (!farmhouse) throw new NotFoundException('Farmhouse not found');
+    if (!farmhouse.isActive) throw new BadRequestException('This farmhouse is not currently accepting bookings');
+    if (!createBookingDto.termsAcceptedAt || new Date(createBookingDto.termsAcceptedAt).getTime() > Date.now()) {
+      throw new BadRequestException('Accept the booking terms before continuing');
+    }
 
     const checkIn = new Date(createBookingDto.checkIn);
     const checkOut = new Date(createBookingDto.checkOut);
-    const nights = Math.ceil(
-      (checkOut.getTime() - checkIn.getTime()) / (1000 * 3600 * 24),
-    );
+    const durationHours = (checkOut.getTime() - checkIn.getTime()) / 3_600_000;
+    const durationDays = Math.ceil(durationHours / 24);
 
-    if (nights < 0 || checkOut <= checkIn)
+    if (durationHours <= 0)
       throw new BadRequestException('Check-out must be after check-in');
+
+    const bookingType = createBookingDto.bookingType || (durationHours <= 12 ? '12H' : durationHours <= 24 ? '24H' : 'CUSTOM');
+    if (!['12H', '24H', 'CUSTOM'].includes(bookingType)) {
+      throw new BadRequestException('Booking type must be 12H, 24H, or CUSTOM');
+    }
+    if ((bookingType === '12H' && durationHours > 12.5) || (bookingType === '24H' && durationHours > 24.5)) {
+      throw new BadRequestException('Selected duration does not match the booking type');
+    }
+    if (bookingType === 'CUSTOM' && durationHours <= 24) {
+      throw new BadRequestException('Custom stays must be longer than 24 hours');
+    }
 
     // Time-based Overlap Check (Excludes SAVED and abandoned PENDING_PAYMENT older than 15 min)
     const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000);
@@ -51,91 +86,95 @@ export class BookingsService {
         userId,
         farmhouseId: farmhouse.id,
         checkIn,
-        status: { in: ['PENDING_PAYMENT', 'SAVED'] },
+        checkOut,
+        status: 'PENDING_PAYMENT',
+        createdAt: { gte: fifteenMinsAgo },
       },
     });
 
-    if (existingPending) {
-      return existingPending;
-    }
-
-    const overlappingBooking = await this.prisma.booking.findFirst({
-      where: {
-        farmhouseId: farmhouse.id,
-        status: { notIn: ['CANCELLED', 'ABANDONED', 'SAVED'] },
-        OR: [
-          { status: 'CONFIRMED' },
-          { status: 'PENDING_PAYMENT', createdAt: { gte: fifteenMinsAgo } },
-        ],
-        checkIn: { lt: checkOut },
-        checkOut: { gt: checkIn },
-      },
-    });
-    if (overlappingBooking) {
-      throw new BadRequestException(
-        'This time slot overlaps with an existing booking.',
-      );
-    }
-
-    const overlappingBlocked = await this.prisma.blockedDateRange.findFirst({
-      where: {
-        farmhouseId: farmhouse.id,
-        startDate: { lt: checkOut },
-        endDate: { gt: checkIn },
-      },
-    });
-    if (overlappingBlocked) {
-      throw new BadRequestException(
-        'This time slot overlaps with blocked dates.',
-      );
+    if (existingPending?.razorpayOrderId) {
+      return { ...existingPending, razorpayKeyId: this.configService.get<string>('RAZORPAY_KEY_ID') };
     }
 
     // Check for date-based pricing overrides
-    const checkInDate = new Date(checkIn);
-    checkInDate.setHours(0, 0, 0, 0);
+    const checkInDate = istDay(checkIn);
     const pricingOverride = await this.prisma.pricingOverride.findUnique({
       where: { farmhouseId_date: { farmhouseId: farmhouse.id, date: checkInDate } },
     });
 
-    const isWeekend = checkInDate.getDay() === 0 || checkInDate.getDay() === 6;
-    const default12H = isWeekend ? ((farmhouse as any).weekendPrice12Hours || farmhouse.price12Hours) : farmhouse.price12Hours;
-    const default24H = isWeekend ? ((farmhouse as any).weekendPrice24Hours || farmhouse.price24Hours) : farmhouse.price24Hours;
+    const isWeekend = checkInDate.getUTCDay() === 0 || checkInDate.getUTCDay() === 6;
+    const default12H = isWeekend ? (farmhouse.weekendPrice12Hours || farmhouse.price12Hours) : farmhouse.price12Hours;
+    const default24H = isWeekend ? (farmhouse.weekendPrice24Hours || farmhouse.price24Hours) : farmhouse.price24Hours;
 
     const price12H = pricingOverride?.price12Hours ?? default12H;
     const price24H = pricingOverride?.price24Hours ?? default24H;
 
-    const bookingType = createBookingDto.bookingType || (nights === 0 ? '12H' : '24H');
     let totalAmount: number;
-    if (bookingType === '12H' || nights === 0) {
+    if (bookingType === '12H') {
       totalAmount = price12H;
-    } else if (bookingType === 'CUSTOM' && nights > 1) {
-      totalAmount = nights * price24H;
     } else {
-      totalAmount = nights * price24H;
+      totalAmount = (bookingType === 'CUSTOM' ? durationDays : 1) * price24H;
     }
 
+    const guestCount = createBookingDto.adults + createBookingDto.children;
+    const includedGuests = farmhouse.capacity;
+    const maxGuests = farmhouse.maxIncludedGuests ?? farmhouse.capacity;
+    if (maxGuests > 0 && guestCount > maxGuests) {
+      throw new BadRequestException(`This farmhouse allows up to ${maxGuests} guests`);
+    }
+    const extraGuestFee = Math.max(0, guestCount - includedGuests) * (farmhouse.extraGuestFee || 0);
+    totalAmount += extraGuestFee;
+
     // Token: 50% for 12H/24H, 100% for CUSTOM
+    const configuredToken = Number(farmhouse.tokenAmount || 0);
     const tokenPaid = bookingType === 'CUSTOM'
       ? totalAmount
-      : Math.round(totalAmount * 0.5);
+      : Math.min(totalAmount, configuredToken > 0 ? configuredToken : Math.round(totalAmount * 0.5));
 
-    const booking = await this.prisma.booking.create({
-      data: {
-        checkIn,
-        checkOut,
-        adults: createBookingDto.adults,
-        children: createBookingDto.children,
-        totalAmount,
-        tokenPaid,
-        notes: createBookingDto.notes || null,
-        termsAcceptedAt: createBookingDto.termsAcceptedAt ? new Date(createBookingDto.termsAcceptedAt) : null,
-        userId,
-        farmhouseId: farmhouse.id,
-      },
+    // Serialize booking creation per farmhouse so simultaneous checkout requests
+    // cannot both pass the overlap check and reserve the same slot.
+    const booking = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "farmhouse" WHERE "id" = ${farmhouse.id} FOR UPDATE`;
+      const overlappingBooking = await tx.booking.findFirst({
+        where: {
+          farmhouseId: farmhouse.id,
+          status: { notIn: ['CANCELLED', 'ABANDONED', 'SAVED'] },
+          OR: [
+            { status: 'CONFIRMED' },
+            { status: 'PENDING_PAYMENT', createdAt: { gte: fifteenMinsAgo } },
+          ],
+          checkIn: { lt: checkOut },
+          checkOut: { gt: checkIn },
+        },
+      });
+      if (overlappingBooking) {
+        throw new BadRequestException('This time slot overlaps with an existing booking.');
+      }
+
+      const overlappingBlocked = await tx.blockedDateRange.findFirst({
+        where: { farmhouseId: farmhouse.id, startDate: { lt: checkOut }, endDate: { gt: checkIn } },
+      });
+      if (overlappingBlocked) {
+        throw new BadRequestException('This time slot overlaps with blocked dates.');
+      }
+
+      return tx.booking.create({
+        data: {
+          checkIn,
+          checkOut,
+          adults: createBookingDto.adults,
+          children: createBookingDto.children,
+          totalAmount,
+          tokenPaid,
+          ...commissionSnapshot(totalAmount, farmhouse.defaultCommissionPercentage),
+          notes: createBookingDto.notes || null,
+          termsAcceptedAt: createBookingDto.termsAcceptedAt ? new Date(createBookingDto.termsAcceptedAt) : null,
+          userId,
+          farmhouseId: farmhouse.id,
+        },
+      });
     });
 
-    // Create Razorpay Order
-    let razorpayOrderId = `order_${booking.id.substring(0, 8)}_${Date.now()}`;
     try {
       const options = {
         amount: Math.round(tokenPaid * 100),
@@ -143,68 +182,127 @@ export class BookingsService {
         receipt: booking.id,
       };
       const order = await this.razorpay.orders.create(options);
-      if (order && order.id) razorpayOrderId = order.id;
-    } catch (e) {
-      console.warn("Razorpay API call warning, using fallback order ID:", e);
+      if (!order?.id || order.amount !== options.amount || order.currency !== options.currency) {
+        throw new Error('Razorpay returned an invalid order');
+      }
+      const updatedBooking = await this.prisma.booking.update({
+        where: { id: booking.id },
+        data: { razorpayOrderId: order.id },
+      });
+      return {
+        ...updatedBooking,
+        razorpayKeyId: this.configService.get<string>('RAZORPAY_KEY_ID'),
+      };
+    } catch (error) {
+      await this.prisma.booking.update({
+        where: { id: booking.id },
+        data: { status: 'ABANDONED' },
+      });
+      throw new ServiceUnavailableException('Could not create a secure payment order. Please try again.');
     }
-
-    return await this.prisma.booking.update({
-      where: { id: booking.id },
-      data: { razorpayOrderId } as any,
-    });
   }
 
   async verifyPayment(verifyDto: VerifyPaymentDto) {
     const { razorpayOrderId, razorpayPaymentId, razorpaySignature } = verifyDto;
 
-    const isTestMode =
-      !razorpayPaymentId ||
-      razorpayPaymentId.startsWith('pay_test_') ||
-      razorpaySignature === 'dummy_sig' ||
-      !this.configService.get('RAZORPAY_KEY_SECRET');
+    if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
+      throw new BadRequestException('Payment order, payment ID, and signature are required');
+    }
+    const secret = this.configService.get<string>('RAZORPAY_KEY_SECRET');
+    if (!secret) throw new ServiceUnavailableException('Online payments are not configured');
 
-    const secret: string = this.configService.get('RAZORPAY_KEY_SECRET') || '';
     const generatedSignature = crypto
       .createHmac('sha256', secret)
       .update(razorpayOrderId + '|' + razorpayPaymentId)
-      .digest('hex');
+      .digest();
+    const suppliedSignature = Buffer.from(razorpaySignature, 'hex');
+    const validSignature = suppliedSignature.length === generatedSignature.length && crypto.timingSafeEqual(generatedSignature, suppliedSignature);
 
-    if (isTestMode || generatedSignature === razorpaySignature) {
-      const booking = await this.prisma.booking.findFirst({
-        where: {
-          OR: [
-            { razorpayOrderId },
-            { id: razorpayOrderId },
-          ],
-        } as any,
-        include: {
-          farmhouse: true,
-          user: true,
-        },
-      });
-      if (!booking) throw new NotFoundException('Booking not found');
-
-      const confirmedBooking = await this.prisma.booking.update({
-        where: { id: booking.id },
-        data: {
-          status: 'CONFIRMED',
-          razorpayPaymentId: razorpayPaymentId || `pay_test_${Date.now()}`,
-        } as any,
-        include: {
-          farmhouse: true,
-          user: true,
-        },
-      });
-
-      if (booking.status !== 'CONFIRMED') {
-        this.mailService.sendBookingConfirmationEmail(confirmedBooking).catch(console.error);
-        this.notificationsService.sendBookingConfirmation(confirmedBooking).catch(console.error);
-      }
-
-      return { status: 'success', booking: confirmedBooking };
-    } else {
+    if (!validSignature) {
       throw new BadRequestException('Invalid signature');
     }
+
+    const booking = await this.prisma.booking.findFirst({
+      where: { razorpayOrderId },
+      include: { farmhouse: true, user: true },
+    });
+    if (!booking) throw new NotFoundException('Payment order not found');
+    if (booking.status === 'CONFIRMED' && booking.razorpayPaymentId === razorpayPaymentId) {
+      return { status: 'success', booking };
+    }
+    if (booking.status !== 'PENDING_PAYMENT') {
+      throw new BadRequestException('This booking is not awaiting payment');
+    }
+
+    let payment: any;
+    try {
+      payment = await this.razorpay.payments.fetch(razorpayPaymentId);
+    } catch {
+      throw new ServiceUnavailableException('Could not verify payment with Razorpay');
+    }
+    if (
+      payment.order_id !== razorpayOrderId ||
+      payment.amount !== Math.round(booking.tokenPaid * 100) ||
+      payment.currency !== 'INR' ||
+      payment.status !== 'captured'
+    ) {
+      throw new BadRequestException('Payment is not captured for the expected amount and order');
+    }
+
+    return this.confirmCapturedPayment(razorpayOrderId, razorpayPaymentId);
+  }
+
+  async handleRazorpayWebhook(rawBody: Buffer | undefined, signature: string | undefined) {
+    const webhookSecret = this.configService.get<string>('RAZORPAY_WEBHOOK_SECRET');
+    if (!rawBody || !signature || !webhookSecret) {
+      throw new ServiceUnavailableException('Razorpay webhook verification is not configured');
+    }
+    const expected = crypto.createHmac('sha256', webhookSecret).update(rawBody).digest();
+    const supplied = Buffer.from(signature, 'hex');
+    if (supplied.length !== expected.length || !crypto.timingSafeEqual(expected, supplied)) {
+      throw new BadRequestException('Invalid Razorpay webhook signature');
+    }
+
+    const event = JSON.parse(rawBody.toString('utf8'));
+    if (event.event !== 'payment.captured') return { received: true, ignored: true };
+    const payment = event.payload?.payment?.entity;
+    if (!payment?.order_id || !payment?.id || payment.status !== 'captured') {
+      throw new BadRequestException('Captured payment event is missing required fields');
+    }
+    const booking = await this.prisma.booking.findFirst({ where: { razorpayOrderId: payment.order_id } });
+    if (!booking) throw new NotFoundException('Booking for payment order not found');
+    if (payment.amount !== Math.round(booking.tokenPaid * 100) || payment.currency !== 'INR') {
+      throw new BadRequestException('Captured payment amount does not match the booking');
+    }
+    return this.confirmCapturedPayment(payment.order_id, payment.id);
+  }
+
+  private async confirmCapturedPayment(orderId: string, paymentId: string) {
+    const booking = await this.prisma.booking.findFirst({ where: { razorpayOrderId: orderId } });
+    if (!booking) throw new NotFoundException('Payment order not found');
+    if (booking.status === 'CONFIRMED' && booking.razorpayPaymentId === paymentId) {
+      const confirmed = await this.prisma.booking.findUnique({ where: { id: booking.id }, include: { farmhouse: true, user: true } });
+      return { status: 'success', booking: confirmed };
+    }
+    const updated = await this.prisma.booking.updateMany({
+      where: { id: booking.id, status: 'PENDING_PAYMENT', razorpayPaymentId: null },
+      data: { status: 'CONFIRMED', paymentMethod: 'ONLINE', razorpayPaymentId: paymentId },
+    });
+    if (updated.count !== 1) {
+      const latest = await this.prisma.booking.findUnique({ where: { id: booking.id }, include: { farmhouse: true, user: true } });
+      if (latest?.status === 'CONFIRMED' && latest.razorpayPaymentId === paymentId) {
+        return { status: 'success', booking: latest };
+      }
+      throw new BadRequestException('This booking has already been settled with a different payment');
+    }
+    const confirmedBooking = await this.prisma.booking.findUnique({
+      where: { id: booking.id },
+      include: { farmhouse: true, user: true },
+    });
+    if (!confirmedBooking) throw new NotFoundException('Confirmed booking not found');
+    this.mailService.sendBookingConfirmationEmail(confirmedBooking).catch(console.error);
+    this.notificationsService.sendBookingConfirmation(confirmedBooking).catch(console.error);
+    return { status: 'success', booking: confirmedBooking };
   }
 
   async findByUser(userId: string) {
@@ -215,20 +313,23 @@ export class BookingsService {
   }
 
   async getAvailability(farmhouseId: string, dateStr: string, type: '12H' | '24H') {
+    if (!farmhouseId || !dateStr || isNaN(new Date(dateStr).getTime()) || !['12H', '24H'].includes(type)) {
+      throw new BadRequestException('Farmhouse, date, and booking type are required');
+    }
     try {
-      if (!farmhouseId || !dateStr || isNaN(new Date(dateStr).getTime())) {
-        return type === '12H' ? ['10:00 AM', '10:00 PM'] : ['10:00 AM'];
-      }
-
       const dayStart = new Date(dateStr);
       dayStart.setHours(0, 0, 0, 0);
       const dayEnd = new Date(dateStr);
       dayEnd.setHours(23, 59, 59, 999);
+      const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000);
 
       const bookings = await this.prisma.booking.findMany({
         where: {
           farmhouseId,
-          status: { notIn: ['CANCELLED', 'ABANDONED'] },
+          OR: [
+            { status: 'CONFIRMED' },
+            { status: 'PENDING_PAYMENT', createdAt: { gte: fifteenMinsAgo } },
+          ],
           checkOut: { gt: dayStart },
           checkIn: { lt: dayEnd }
         },
@@ -300,8 +401,9 @@ export class BookingsService {
 
       return Array.from(new Set(availableSlots));
     } catch (e) {
-      console.warn("getAvailability failed, returning fallback slots:", e);
-      return type === '12H' ? ['10:00 AM', '10:00 PM'] : ['10:00 AM'];
+      console.error('Availability lookup failed:', e);
+      if (e instanceof BadRequestException) throw e;
+      throw new ServiceUnavailableException('Availability could not be checked. Please retry.');
     }
   }
 
@@ -311,7 +413,10 @@ export class BookingsService {
     const bookings = await this.prisma.booking.findMany({
       where: {
         farmhouseId,
-        status: { in: ['CONFIRMED', 'PENDING_PAYMENT'] },
+        OR: [
+          { status: 'CONFIRMED' },
+          { status: 'PENDING_PAYMENT', createdAt: { gte: new Date(Date.now() - 15 * 60 * 1000) } },
+        ],
       },
       select: { checkIn: true, checkOut: true },
     });
@@ -329,7 +434,7 @@ export class BookingsService {
       const last = new Date(end);
       last.setHours(0, 0, 0, 0);
 
-      while (cur <= last) {
+      while (cur < last) {
         const y = cur.getFullYear();
         const m = String(cur.getMonth() + 1).padStart(2, '0');
         const d = String(cur.getDate()).padStart(2, '0');
@@ -1009,11 +1114,14 @@ export class BookingsService {
     });
   }
 
-  async createAdminBooking(createBookingDto: CreateBookingDto, userId: string) {
+  async createAdminBooking(createBookingDto: CreateBookingDto, userId: string, actorId: string, actorRole: string) {
     const farmhouse = await this.prisma.farmhouse.findUnique({
       where: { id: createBookingDto.farmhouseId },
     });
     if (!farmhouse) throw new NotFoundException('Farmhouse not found');
+    if (actorRole === 'OWNER' && farmhouse.ownerId !== actorId) {
+      throw new BadRequestException('You do not own this farmhouse');
+    }
 
     const checkIn = new Date(createBookingDto.checkIn);
     const checkOut = new Date(createBookingDto.checkOut);
@@ -1064,6 +1172,7 @@ export class BookingsService {
         children: createBookingDto.children,
         totalAmount,
         tokenPaid,
+        ...commissionSnapshot(totalAmount, farmhouse.defaultCommissionPercentage),
         userId,
         farmhouseId: farmhouse.id,
         status: 'CONFIRMED', // Admin books are automatically confirmed
@@ -1082,7 +1191,7 @@ export class BookingsService {
     return booking;
   }
 
-  async generateInvoicePdf(bookingId: string, res: any) {
+  async generateInvoicePdf(bookingId: string, res: any, actorId: string, actorRole: string) {
     const PDFDocument = require('pdfkit');
 
     const booking = await this.prisma.booking.findUnique({
@@ -1094,6 +1203,12 @@ export class BookingsService {
     });
 
     if (!booking) throw new NotFoundException('Booking not found');
+    if (actorRole === 'CUSTOMER' && booking.userId !== actorId) {
+      throw new BadRequestException('This invoice does not belong to you');
+    }
+    if (actorRole === 'OWNER' && booking.farmhouse.ownerId !== actorId) {
+      throw new BadRequestException('You do not own this farmhouse');
+    }
 
     const doc = new PDFDocument({ margin: 50 });
 
@@ -1202,6 +1317,7 @@ export class BookingsService {
         children: createBookingDto.children,
         totalAmount,
         tokenPaid,
+        ...commissionSnapshot(totalAmount, farmhouse.defaultCommissionPercentage),
         notes: createBookingDto.notes || null,
         status: 'SAVED',
         userId,
@@ -1211,9 +1327,12 @@ export class BookingsService {
     });
   }
 
-  async rearrangeBooking(id: string, checkInStr: string, checkOutStr: string) {
-    const booking = await this.prisma.booking.findUnique({ where: { id } });
+  async rearrangeBooking(id: string, checkInStr: string, checkOutStr: string, actorId: string, actorRole: string) {
+    const booking = await this.prisma.booking.findUnique({ where: { id }, include: { farmhouse: true } });
     if (!booking) throw new NotFoundException('Booking not found');
+    if (actorRole === 'OWNER' && booking.farmhouse.ownerId !== actorId) {
+      throw new BadRequestException('You do not own this farmhouse');
+    }
 
     const newCheckIn = new Date(checkInStr);
     const newCheckOut = new Date(checkOutStr);
@@ -1252,9 +1371,15 @@ export class BookingsService {
     });
   }
 
-  async cancelBooking(id: string, userId?: string, reason?: string) {
-    const booking = await this.prisma.booking.findUnique({ where: { id } });
+  async cancelBooking(id: string, userId: string, userRole: string, reason?: string) {
+    const booking = await this.prisma.booking.findUnique({ where: { id }, include: { farmhouse: true } });
     if (!booking) throw new NotFoundException('Booking not found');
+    if (userRole === 'CUSTOMER' && booking.userId !== userId) {
+      throw new BadRequestException('This booking does not belong to you');
+    }
+    if (userRole === 'OWNER' && booking.farmhouse.ownerId !== userId) {
+      throw new BadRequestException('You do not own this farmhouse');
+    }
 
     const hoursSinceBooking = (Date.now() - booking.createdAt.getTime()) / (1000 * 3600);
     const daysUntilCheckIn = (booking.checkIn.getTime() - Date.now()) / (1000 * 3600 * 24);

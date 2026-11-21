@@ -2,6 +2,8 @@ import { Body, Controller, Delete, Get, Patch, Post, Req, UseGuards, Param } fro
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { Role } from '@prisma/client';
 import { NotificationsService } from './notifications.service';
 
 interface AuthenticatedRequest extends Request {
@@ -40,5 +42,18 @@ export class NotificationsController {
   @ApiOperation({ summary: 'Mark an in-app notification as read' })
   markRead(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     return this.notificationsService.markRead(req.user.id, id);
+  }
+
+  @Patch('read-all')
+  @ApiOperation({ summary: 'Mark all my notifications as read' })
+  markAllRead(@Req() req: AuthenticatedRequest) {
+    return this.notificationsService.markAllRead(req.user.id);
+  }
+
+  @Post('send')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'System admin: send a notification to owners (app push + panel bell)' })
+  send(@Body() body: { userIds?: string[]; audience?: 'ALL_OWNERS'; title: string; body: string }) {
+    return this.notificationsService.sendToUsers(body);
   }
 }

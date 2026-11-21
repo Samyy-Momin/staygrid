@@ -44,7 +44,6 @@ export class UsersService {
     this.mailService.sendWelcomeEmail(
       owner.email,
       owner.name,
-      createOwnerDto.password,
     ).catch(err => console.error('Failed to send owner welcome email:', err));
 
     return {
@@ -69,9 +68,12 @@ export class UsersService {
     });
   }
 
-  async findAllCustomers() {
+  async findAllCustomers(actorId?: string, actorRole?: Role) {
     return this.prisma.user.findMany({
-      where: { role: Role.CUSTOMER },
+      where: {
+        role: Role.CUSTOMER,
+        ...(actorRole === Role.OWNER ? { bookings: { some: { farmhouse: { ownerId: actorId } } } } : {}),
+      },
       select: {
         id: true,
         name: true,
@@ -157,11 +159,10 @@ export class UsersService {
       });
     }
 
-    // Send SMTP update email to Owner with new password
+    // Notify the owner without transmitting the new password by email.
     this.mailService.sendWelcomeEmail(
       owner.email,
       owner.name,
-      dto.newPassword,
     ).catch(err => console.error('Failed to send password reset email:', err));
 
     return {

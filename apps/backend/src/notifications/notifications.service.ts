@@ -7,7 +7,7 @@ type NotificationPayload = {
   title: string;
   body: string;
   data?: Record<string, string>;
-  dedupeKey: string;
+  dedupeKey?: string;
 };
 
 @Injectable()
@@ -51,11 +51,41 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  async markAllRead(userId: string) {
+    return this.prisma.notification.updateMany({ where: { userId, readAt: null }, data: { readAt: new Date() } });
+  }
+
   async markRead(userId: string, id: string) {
     return this.prisma.notification.updateMany({
       where: { id, userId, readAt: null },
       data: { readAt: new Date() },
     });
+  }
+
+  /** In-app notification + push to every device of the user. Same dedupeKey twice = sent once. */
+  notify(payload: NotificationPayload) {
+    return this.createNotification(payload);
+  }
+
+  /** System-admin broadcast to explicit users or all owners. */
+  async sendToUsers(input: { userIds?: string[]; audience?: 'ALL_OWNERS'; title: string; body: string }) {
+    const title = input.title?.trim();
+    const body = input.body?.trim();
+    if (!title || !body || title.length > 80 || body.length > 500) {
+      throw new BadRequestException('Title (max 80) and message (max 500) are required');
+    }
+    const userIds = input.audience === 'ALL_OWNERS'
+      ? (await this.prisma.user.findMany({ where: { role: 'OWNER' }, select: { id: true } })).map((u) => u.id)
+      : [...new Set(input.userIds || [])];
+    if (userIds.length === 0) throw new BadRequestException('Choose at least one recipient');
+    if (userIds.length > 1000) throw new BadRequestException('Too many recipients in one send');
+
+    let sent = 0;
+    for (const userId of userIds) {
+      await this.createNotification({ userId, type: 'ADMIN_MESSAGE', title, body });
+      sent++;
+    }
+    return { sent };
   }
 
   private async createNotification(payload: NotificationPayload) {
@@ -113,6 +143,19 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
 
   async sendBookingConfirmation(booking: any) {
     if (!booking.userId) return;
+    // Tell the farmhouse owner too — this is the alert they care about most.
+    const ownerId = booking.farmhouse?.ownerId;
+    if (ownerId && ownerId !== booking.userId) {
+      const when = new Date(booking.checkIn).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' });
+      await this.createNotification({
+        userId: ownerId,
+        type: 'OWNER_NEW_BOOKING',
+        title: 'New booking',
+        body: `${booking.user?.name || 'A guest'} booked ${booking.farmhouse?.title || 'your farmhouse'} for ${when}. Guests: ${(booking.adults || 0) + (booking.children || 0)}.`,
+        data: { ownerBookingId: booking.id, farmhouseId: booking.farmhouseId },
+        dedupeKey: 'OWNER_NEW_BOOKING:' + booking.id,
+      }).catch((e) => this.logger.error('Owner booking notification failed', e));
+    }
     return this.createNotification({
       userId: booking.userId,
       type: 'BOOKING_CONFIRMED',

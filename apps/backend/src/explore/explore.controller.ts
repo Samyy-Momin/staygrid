@@ -31,6 +31,9 @@ export class ExploreController {
   }
 
   @Post('sync-instagram')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Sync Reels from Instagram Graph API' })
   async syncInstagramGraphApi(
     @Body('accessToken') accessToken: string,

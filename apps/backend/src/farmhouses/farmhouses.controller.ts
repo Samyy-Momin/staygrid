@@ -20,7 +20,7 @@ import {
   ApiResponse,
   ApiBearerAuth,
 } from '@nestjs/swagger';
-import { CreateFarmhouseDto } from './dto/create-farmhouse.dto';
+import { CreateFarmhouseDto, UpdateFarmhouseDto, ADMIN_ONLY_FARMHOUSE_FIELDS } from './dto/create-farmhouse.dto';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { Role } from '@prisma/client';
@@ -29,6 +29,12 @@ import { OptionalAuthGuard } from '../auth/guards/optional-auth.guard';
 
 interface AuthenticatedRequest extends Request {
   user: { id: string; [key: string]: any };
+}
+
+function stripAdminOnlyFields<T extends object>(dto: T, role: Role): T {
+  if (role === Role.ADMIN) return dto;
+  for (const key of ADMIN_ONLY_FARMHOUSE_FIELDS) delete (dto as any)[key];
+  return dto;
 }
 
 @ApiTags('Farmhouses')
@@ -56,7 +62,7 @@ export class FarmhousesController {
     }
 
     const farmhouse = await this.farmhousesService.create(
-      createFarmhouseDto,
+      stripAdminOnlyFields(createFarmhouseDto, req.user.role),
       ownerId,
     );
     return { message: 'Farmhouse created successfully', farmhouse };
@@ -160,7 +166,7 @@ export class FarmhousesController {
   async update(
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
-    @Body() updateData: Partial<CreateFarmhouseDto>,
+    @Body() updateData: UpdateFarmhouseDto,
   ) {
     if (req.user.role === Role.OWNER) {
       const farmhouse = await this.farmhousesService.findOne(id);
@@ -168,7 +174,7 @@ export class FarmhousesController {
         throw new UnauthorizedException("You do not own this farmhouse");
       }
     }
-    return this.farmhousesService.update(id, updateData);
+    return this.farmhousesService.update(id, stripAdminOnlyFields(updateData, req.user.role));
   }
 
   @Patch(':id/status')
@@ -216,7 +222,7 @@ export class FarmhousesController {
         throw new UnauthorizedException("You do not own this farmhouse");
       }
     }
-    return this.farmhousesService.blockDateRange(id, startDate, endDate, note, req.user.role);
+    return this.farmhousesService.blockDateRange(id, startDate, endDate, note, req.user.role, req.user.id);
   }
 
   @Get(':id/blocked-dates')
@@ -234,18 +240,7 @@ export class FarmhousesController {
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string
   ) {
-    if (req.user.role === Role.OWNER) {
-      // Need to find which farmhouse this blocked date belongs to, but it's easier to just check it inside the service or get the blocked date first.
-      // Let's get the blocked date via prisma directly or in service.
-      const blockedDate = await this.farmhousesService.getBlockedDateById(id);
-      if (blockedDate) {
-        const farmhouse = await this.farmhousesService.findOne(blockedDate.farmhouseId);
-        if (farmhouse.ownerId !== req.user.id) {
-          throw new UnauthorizedException("You do not own this farmhouse");
-        }
-      }
-    }
-    return this.farmhousesService.removeBlockedDateRange(id);
+    return this.farmhousesService.removeBlockedDateRange(id, req.user.id, req.user.role);
   }
 
   @Get(':id/pricing-overrides')
@@ -260,10 +255,11 @@ export class FarmhousesController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Create or update pricing override' })
   async upsertPricingOverride(
+    @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
     @Body() body: { date: string; price12Hours?: number; price24Hours?: number; label?: string; type: string }
   ) {
-    return this.farmhousesService.upsertPricingOverride(id, body);
+    return this.farmhousesService.upsertPricingOverride(id, body, req.user.id, req.user.role);
   }
 
   @Delete('pricing-overrides/:overrideId')
@@ -271,7 +267,7 @@ export class FarmhousesController {
   @Roles(Role.ADMIN, Role.OWNER)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Delete pricing override' })
-  async deletePricingOverride(@Param('overrideId') overrideId: string) {
-    return this.farmhousesService.deletePricingOverride(overrideId);
+  async deletePricingOverride(@Req() req: AuthenticatedRequest, @Param('overrideId') overrideId: string) {
+    return this.farmhousesService.deletePricingOverride(overrideId, req.user.id, req.user.role);
   }
 }

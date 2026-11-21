@@ -41,3 +41,8 @@ Thumbs.db
 
 # Testing
 coverage
+
+# deploy secrets & backups
+deploy/.env
+deploy/backend.env
+deploy/backups/

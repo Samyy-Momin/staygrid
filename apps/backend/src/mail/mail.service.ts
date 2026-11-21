@@ -12,8 +12,11 @@ export class MailService {
   constructor(private configService: ConfigService) {
     const host = this.configService.get<string>('SMTP_HOST') || 'smtp.gmail.com';
     const port = parseInt(this.configService.get<string>('SMTP_PORT') || '587', 10);
-    const user = this.configService.get<string>('SMTP_USER') || 'samimomin40@gmail.com';
+    const user = this.configService.get<string>('SMTP_USER') || '';
     const pass = this.configService.get<string>('SMTP_PASS') || '';
+    if (process.env.NODE_ENV === 'production' && (!user || !pass)) {
+      throw new Error('SMTP_USER and SMTP_PASS are required in production');
+    }
 
     this.transporter = nodemailer.createTransport({
       host,
@@ -26,17 +29,16 @@ export class MailService {
     });
   }
 
-  async sendWelcomeEmail(toEmail: string, name: string, tempPassword: string, loginUrl?: string) {
+  async sendWelcomeEmail(toEmail: string, name: string, loginUrl?: string) {
     const defaultUrl = loginUrl || 'http://localhost:3001/login';
     const htmlContent = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; rounded-radius: 8px;">
         <h2 style="color: #0066CC;">Welcome to StayGrid! 🎉</h2>
-        <p>Hi <strong>${name}</strong>,</p>
+        <p>Hi <strong>${escapeHtml(name)}</strong>,</p>
         <p>You have been registered as an <strong>Owner Admin</strong> on StayGrid.</p>
-        <p>Here are your temporary login credentials:</p>
+        <p>Your owner account is ready. Sign in with the account credentials provided by your administrator.</p>
         <div style="background-color: #f5f5f5; padding: 15px; border-radius: 6px; margin: 15px 0;">
-          <p style="margin: 5px 0;"><strong>Email:</strong> ${toEmail}</p>
-          <p style="margin: 5px 0;"><strong>Password:</strong> ${tempPassword}</p>
+          <p style="margin: 5px 0;"><strong>Email:</strong> ${escapeHtml(toEmail)}</p>
         </div>
         <p>Please log in to your dashboard to manage your farmhouse listings and set pricing:</p>
         <p><a href="${defaultUrl}" style="background-color: #0066CC; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">Log in to StayGrid Dashboard</a></p>

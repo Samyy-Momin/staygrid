@@ -110,6 +110,8 @@ model Farmhouse {
   
   contactNumbers String[]
   tokenAmount    Float    @default(2000)
+  weekendPrice12Hours Float?
+  weekendPrice24Hours Float?
   isWheelchairAccessible Boolean @default(false)
   
   // Outdoor
@@ -184,8 +186,97 @@ model Farmhouse {
   favorites        Favorite[]
   pricingOverrides PricingOverride[]
   exploreMedia     ExploreMedia[]
+  website          Website?
+  enquiries        WebsiteEnquiry[]
 
   @@map("farmhouse")
+}
+
+// ─── Owner websites (monthly subscription, managed by system admin) ───
+
+enum WebsiteStatus {
+  DRAFT      // created, not visible publicly
+  ACTIVE     // live on subdomain / custom domain
+  SUSPENDED  // shut down by system admin (e.g. unpaid)
+}
+
+model WebsitePlan {
+  id           String    @id @default(uuid())
+  name         String    @unique
+  monthlyPrice Float
+  description  String?
+  isActive     Boolean   @default(true)
+  websites     Website[]
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@map("website_plan")
+}
+
+model Website {
+  id              String        @id @default(uuid())
+  farmhouseId     String        @unique
+  farmhouse       Farmhouse     @relation(fields: [farmhouseId], references: [id], onDelete: Cascade)
+  subdomain       String        @unique // "sharifafarmhouse" -> sharifafarmhouse.<SITES_ROOT_DOMAIN>
+  customDomain    String?       @unique // "www.sharifafarmhouse.com" (set by system admin after DNS check)
+  status          WebsiteStatus @default(DRAFT)
+  suspendedReason String?
+
+  // Owner-editable content
+  tagline         String?
+  about           String?
+  usps            String[]
+  whatsappNumber  String?
+
+  // Subscription
+  planId          String?
+  plan            WebsitePlan?  @relation(fields: [planId], references: [id], onDelete: SetNull)
+  paidUntil       DateTime?
+  lastReminderAt  DateTime?
+
+  payments        WebsitePayment[]
+  enquiries       WebsiteEnquiry[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([status, paidUntil])
+  @@map("website")
+}
+
+model WebsitePayment {
+  id          String   @id @default(uuid())
+  websiteId   String
+  website     Website  @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+  amount      Float
+  months      Int
+  periodStart DateTime
+  periodEnd   DateTime
+  method      String   // "CASH" | "UPI" | "BANK" | "RAZORPAY"
+  reference   String?
+  recordedBy  String?  // admin user id
+  createdAt   DateTime @default(now())
+
+  @@index([websiteId, createdAt])
+  @@map("website_payment")
+}
+
+model WebsiteEnquiry {
+  id          String    @id @default(uuid())
+  websiteId   String
+  website     Website   @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+  farmhouseId String
+  farmhouse   Farmhouse @relation(fields: [farmhouseId], references: [id], onDelete: Cascade)
+  name        String
+  phone       String
+  checkIn     DateTime?
+  guests      Int?
+  message     String?
+  status      String    @default("NEW") // "NEW" | "CONTACTED" | "BOOKED" | "LOST"
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([farmhouseId, createdAt])
+  @@map("website_enquiry")
 }
 
 model Category {

@@ -1,9 +1,20 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { ConfigService } from '@nestjs/config';
+import Razorpay from 'razorpay';
 
 @Injectable()
 export class FinanceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly config: ConfigService) {}
+
+  private getRazorpay() {
+    const keyId = this.config.get<string>('RAZORPAY_KEY_ID');
+    const keySecret = this.config.get<string>('RAZORPAY_KEY_SECRET');
+    if (!keyId || !keySecret || (process.env.NODE_ENV === 'production' && keyId.startsWith('rzp_test_'))) {
+      throw new ServiceUnavailableException('Live Razorpay credentials are required to issue an online refund');
+    }
+    return new Razorpay({ key_id: keyId, key_secret: keySecret });
+  }
 
   // Helper: Round monetary amounts safely to 2 decimal places
   private roundMoney(amount: number): number {
@@ -401,34 +412,68 @@ export class FinanceService {
     }
 
     const amount = Number(refundAmount);
-
-    const updatedBooking = await this.prisma.booking.update({
-      where: { id: bookingId },
-      data: {
-        refundAmount: amount,
-        isCustomRefundOverride: Boolean(isOverride),
-        refundOverrideReason: reason || null,
-        refundStatus: 'PROCESSED',
-        refundTxnId: txnId || `rfnd_${Date.now()}`,
-        accountingStatus: 'BALANCED_CLOSED',
-      },
+    if (!Number.isFinite(amount) || amount <= 0 || amount > Number(booking.tokenPaid)) {
+      throw new BadRequestException('Refund amount must be greater than zero and no more than the amount paid');
+    }
+    const claim = await this.prisma.booking.updateMany({
+      where: { id: bookingId, refundStatus: { not: 'PROCESSING' } },
+      data: { refundStatus: 'PROCESSING' },
     });
+    if (claim.count !== 1) throw new ConflictException('A refund is already being processed');
 
-    await this.prisma.financialTransaction.create({
-      data: {
-        bookingId,
-        type: 'CUSTOMER_REFUND',
-        amount,
-        direction: 'OUTFLOW',
-        fromEntity: 'STAYGRID',
-        toEntity: 'CUSTOMER',
-        reference: txnId || `rfnd_${Date.now()}`,
-        reason: reason || 'Standard cancellation policy refund',
-        notes: isOverride ? `Custom refund override ₹${amount}. Reason: ${reason}` : `Policy refund ₹${amount} processed`,
-      },
+    let gatewayRefundId: string;
+    if (booking.paymentMethod === 'ONLINE') {
+      if (!booking.razorpayPaymentId) {
+        await this.prisma.booking.update({ where: { id: bookingId }, data: { refundStatus: 'PENDING' } });
+        throw new BadRequestException('Razorpay payment ID is missing for this booking');
+      }
+      try {
+        const refund = await this.getRazorpay().payments.refund(booking.razorpayPaymentId, {
+          amount: Math.round(amount * 100),
+          notes: { bookingId, reason: reason || 'Booking cancellation' },
+        });
+        if (!refund.id || refund.amount !== Math.round(amount * 100)) throw new Error('Invalid refund response from Razorpay');
+        gatewayRefundId = refund.id;
+      } catch (error) {
+        await this.prisma.booking.update({ where: { id: bookingId }, data: { refundStatus: 'PENDING' } });
+        if (error instanceof ServiceUnavailableException) throw error;
+        throw new ServiceUnavailableException('Razorpay could not process the refund');
+      }
+    } else {
+      if (!txnId?.trim()) {
+        await this.prisma.booking.update({ where: { id: bookingId }, data: { refundStatus: 'PENDING' } });
+        throw new BadRequestException('Enter the bank or cash refund reference before closing this refund');
+      }
+      gatewayRefundId = txnId.trim();
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const updatedBooking = await tx.booking.update({
+        where: { id: bookingId },
+        data: {
+          refundAmount: amount,
+          isCustomRefundOverride: Boolean(isOverride),
+          refundOverrideReason: reason || null,
+          refundStatus: 'PROCESSED',
+          refundTxnId: gatewayRefundId,
+          accountingStatus: 'BALANCED_CLOSED',
+        },
+      });
+      await tx.financialTransaction.create({
+        data: {
+          bookingId,
+          type: 'CUSTOMER_REFUND',
+          amount,
+          direction: 'OUTFLOW',
+          fromEntity: 'STAYGRID',
+          toEntity: 'CUSTOMER',
+          reference: gatewayRefundId,
+          reason: reason || 'Standard cancellation policy refund',
+          notes: isOverride ? `Custom refund override ₹${amount}. Reason: ${reason}` : `Policy refund ₹${amount} processed`,
+        },
+      });
+      return updatedBooking;
     });
-
-    return updatedBooking;
   }
 
   // Action 5: Change StayGrid Share / Commission

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { FarmhousesService } from '../farmhouses/farmhouses.service';
@@ -10,7 +10,7 @@ export class ReviewsService {
     private farmhousesService: FarmhousesService,
   ) {}
 
-  async create(data: CreateReviewDto & { userId: string }) {
+  async create(data: CreateReviewDto, userId: string) {
     const numericRating = Math.max(1, Math.min(5, Math.round(Number(data.rating) || 5)));
     
     // 1. Ensure target farmhouseId is valid single string
@@ -20,19 +20,15 @@ export class ReviewsService {
       targetFarmhouseId = firstFarmhouse?.id || '';
     }
 
-    // 2. Ensure userId exists in Prisma user table to prevent Foreign Key failure
-    const userIdStr = Array.isArray(data.userId) ? (data.userId as any)[0] : String(data.userId || 'guest_user');
-    const existingUser = await this.prisma.user.findUnique({ where: { id: userIdStr } });
-    if (!existingUser) {
-      await this.prisma.user.create({
-        data: {
-          id: userIdStr,
-          email: `user_${userIdStr.slice(-6)}@staygrid.in`,
-          name: 'StayGrid Guest',
-          phone: '+919999999999',
-        },
-      }).catch(() => null);
-    }
+    const farmhouse = await this.prisma.farmhouse.findUnique({ where: { id: targetFarmhouseId }, select: { id: true } });
+    if (!farmhouse) throw new NotFoundException('Farmhouse not found');
+    const hasStay = await this.prisma.booking.findFirst({
+      where: { userId, farmhouseId: targetFarmhouseId, status: { in: ['CONFIRMED', 'COMPLETED'] } },
+      select: { id: true },
+    });
+    if (!hasStay) throw new ForbiddenException('A confirmed booking is required to review this farmhouse');
+    const priorReview = await this.prisma.review.findFirst({ where: { userId, farmhouseId: targetFarmhouseId }, select: { id: true } });
+    if (priorReview) throw new ConflictException('You have already reviewed this farmhouse');
 
     const review = await this.prisma.review.create({
       data: {
@@ -41,7 +37,7 @@ export class ReviewsService {
         groupType: data.groupType || 'Family',
         amenityRatings: data.amenityRatings || {},
         farmhouseId: targetFarmhouseId,
-        userId: userIdStr,
+        userId,
       },
       include: {
         user: { select: { name: true, image: true } },

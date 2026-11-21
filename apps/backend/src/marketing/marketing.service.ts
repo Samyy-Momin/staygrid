@@ -7,7 +7,7 @@ export class MarketingService {
   constructor(private prisma: PrismaService) {}
 
   async logEvent(data: { userId?: string; farmhouseId?: string; eventType: string; metadata?: any }) {
-    return this.prisma.userEvent.create({
+    await this.prisma.userEvent.create({
       data: {
         userId: data.userId || null,
         farmhouseId: data.farmhouseId || null,
@@ -15,24 +15,41 @@ export class MarketingService {
         metadata: data.metadata || undefined,
       },
     });
+    return { ok: true };
   }
 
-  async getFunnelOverview() {
-    const totalViews = await this.prisma.userEvent.count({ where: { eventType: 'VIEW_FARMHOUSE' } });
-    const totalInitiatedCheckouts = await this.prisma.userEvent.count({ where: { eventType: 'INITIATE_CHECKOUT' } });
+  /** ownerId set => scope every number to that owner's farmhouses. */
+  async getFunnelOverview(ownerId?: string) {
+    const farmhouseIds = ownerId
+      ? (await this.prisma.farmhouse.findMany({ where: { ownerId }, select: { id: true } })).map((f) => f.id)
+      : undefined;
+    const eventScope = farmhouseIds ? { farmhouseId: { in: farmhouseIds } } : {};
+    const bookingScope = farmhouseIds ? { farmhouseId: { in: farmhouseIds } } : {};
     const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000);
-    const totalAbandonedCartLeads = await this.prisma.booking.count({
-      where: { status: { in: ['PENDING_PAYMENT', 'ABANDONED', 'SAVED'] }, createdAt: { lte: fifteenMinsAgo } },
-    });
-    const totalConfirmedBookings = await this.prisma.booking.count({ where: { status: 'CONFIRMED' } });
+
+    const [totalViews, totalInitiatedCheckouts, totalAbandonedCartLeads, totalConfirmedBookings] = await Promise.all([
+      this.prisma.userEvent.count({ where: { eventType: 'VIEW_FARMHOUSE', ...eventScope } }),
+      this.prisma.userEvent.count({ where: { eventType: 'INITIATE_CHECKOUT', ...eventScope } }),
+      this.prisma.booking.count({
+        where: { status: { in: ['PENDING_PAYMENT', 'ABANDONED', 'SAVED'] }, createdAt: { lte: fifteenMinsAgo }, ...bookingScope },
+      }),
+      this.prisma.booking.count({ where: { status: 'CONFIRMED', ...bookingScope } }),
+    ]);
     return { totalViews, totalInitiatedCheckouts, totalAbandonedCartLeads, totalConfirmedBookings };
   }
 
-  async getAbandonedCheckoutLeads() {
+  async getAbandonedCheckoutLeads(ownerId?: string) {
     const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000);
     return this.prisma.booking.findMany({
-      where: { status: { in: ['PENDING_PAYMENT', 'ABANDONED', 'SAVED'] }, createdAt: { lte: fifteenMinsAgo } },
-      include: { user: true, farmhouse: true },
+      where: {
+        status: { in: ['PENDING_PAYMENT', 'ABANDONED', 'SAVED'] },
+        createdAt: { lte: fifteenMinsAgo },
+        ...(ownerId ? { farmhouse: { ownerId } } : {}),
+      },
+      include: {
+        user: { select: { id: true, name: true, phone: true, email: true } },
+        farmhouse: { select: { id: true, title: true, city: true } },
+      },
       orderBy: { createdAt: 'desc' },
       take: 100,
     });

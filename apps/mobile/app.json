@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "mobile",
+    "name": "StayGrid",
     "slug": "mobile",
     "scheme": "staygrid",
     "jsEngine": "hermes",
@@ -9,9 +9,11 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "com.staygrid.app"
     },
     "android": {
+      "package": "com.staygrid.app",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",

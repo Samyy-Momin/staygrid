@@ -1,5 +1,5 @@
 import { View, Text, ScrollView, TouchableOpacity, Image, ActivityIndicator, Linking, Platform, Modal, Pressable, StyleSheet } from "react-native";
-import { WebView } from "react-native-webview";
+import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Calendar as RNCalendar, DateData } from "react-native-calendars";
@@ -715,38 +715,31 @@ export default function FarmhouseDetailScreen() {
               </TouchableOpacity>
             </View>
             <View className="h-64 rounded-[2rem] overflow-hidden border border-border dark:border-border shadow-sm relative">
-              <WebView
-                source={{
-                  html: `
- <!DOCTYPE html>
- <html>
- <head>
- <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
- <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
- <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
- <style>
- body { padding: 0; margin: 0; }
- html, body, #map { height: 100%; width: 100%; }
- </style>
- </head>
- <body>
- <div id="map"></div>
- <script>
- var lat = ${Number(farmhouse.latitude) || 18.5204};
- var lng = ${Number(farmhouse.longitude) || 73.8567};
- var map = L.map('map').setView([lat, lng], 13);
- L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
- maxZoom: 19,
- attribution: '© OpenStreetMap'
- }).addTo(map);
- L.marker([lat, lng]).addTo(map).bindPopup('<b>${farmhouse.title || 'Farmhouse'}</b>').openPopup();
- </script>
- </body>
- </html>
- `}}
-                style={{ flex: 1 }}
-                scrollEnabled={false}
-              />
+              {Number.isFinite(Number(farmhouse.latitude)) && farmhouse.latitude != null &&
+               Number.isFinite(Number(farmhouse.longitude)) && farmhouse.longitude != null ? (
+                process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ? (
+                  <MapView
+                    provider={PROVIDER_GOOGLE}
+                    style={{ flex: 1 }}
+                    initialRegion={{ latitude: Number(farmhouse.latitude), longitude: Number(farmhouse.longitude), latitudeDelta: 0.035, longitudeDelta: 0.035 }}
+                    accessibilityLabel="Farmhouse location map"
+                  >
+                    <Marker
+                      coordinate={{ latitude: Number(farmhouse.latitude), longitude: Number(farmhouse.longitude) }}
+                      title={farmhouse.title || 'Farmhouse'}
+                      description={farmhouse.streetAddress || farmhouse.city || undefined}
+                    />
+                  </MapView>
+                ) : (
+                  <View className="flex-1 items-center justify-center bg-surface px-6">
+                    <Text className="text-center text-sm text-text-muted">The Google Maps key is not configured for this app build.</Text>
+                  </View>
+                )
+              ) : (
+                <View className="flex-1 items-center justify-center bg-surface px-6">
+                  <Text className="text-center text-sm text-text-muted">This property has no saved map location yet.</Text>
+                </View>
+              )}
             </View>
           </View>
 

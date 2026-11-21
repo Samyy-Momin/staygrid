@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateFarmhouseDto } from './dto/create-farmhouse.dto';
 import { validateFarmhousePrices } from '../common/utils/price-validator';
+import { istDay } from '../common/utils/ist-date';
 import { Role } from '@prisma/client';
 
 @Injectable()
@@ -120,6 +121,12 @@ export class FarmhousesService {
         // Custom
         customAmenities: createFarmhouseDto.customAmenities || [],
         hostName: createFarmhouseDto.hostName,
+        ...(createFarmhouseDto.tokenAmount !== undefined ? { tokenAmount: createFarmhouseDto.tokenAmount } : {}),
+        weekendPrice12Hours: createFarmhouseDto.weekendPrice12Hours,
+        weekendPrice24Hours: createFarmhouseDto.weekendPrice24Hours,
+        ...(createFarmhouseDto.defaultCommissionPercentage !== undefined
+          ? { defaultCommissionPercentage: createFarmhouseDto.defaultCommissionPercentage }
+          : {}),
 
         // Max capacity
         maxIncludedGuests: createFarmhouseDto.maxIncludedGuests,
@@ -348,7 +355,17 @@ export class FarmhousesService {
     });
   }
 
-  async deletePricingOverride(id: string) {
+  private async assertOwnerAccess(farmhouseId: string, actorId: string, role: Role) {
+    if (role === Role.ADMIN) return;
+    const farmhouse = await this.prisma.farmhouse.findUnique({ where: { id: farmhouseId }, select: { ownerId: true } });
+    if (!farmhouse) throw new NotFoundException('Farmhouse not found');
+    if (farmhouse.ownerId !== actorId) throw new BadRequestException('You do not own this farmhouse');
+  }
+
+  async deletePricingOverride(id: string, actorId: string, role: Role) {
+    const override = await this.prisma.pricingOverride.findUnique({ where: { id }, select: { farmhouseId: true } });
+    if (!override) throw new NotFoundException('Pricing override not found');
+    await this.assertOwnerAccess(override.farmhouseId, actorId, role);
     return this.prisma.pricingOverride.delete({
       where: { id },
     });
@@ -407,9 +424,13 @@ export class FarmhousesService {
     });
   }
 
-  async upsertPricingOverride(farmhouseId: string, data: { date: string; price12Hours?: number; price24Hours?: number; label?: string; type: string }) {
-    const targetDate = new Date(data.date);
-    targetDate.setHours(0, 0, 0, 0);
+  async upsertPricingOverride(farmhouseId: string, data: { date: string; price12Hours?: number; price24Hours?: number; label?: string; type: string }, actorId: string, role: Role) {
+    await this.assertOwnerAccess(farmhouseId, actorId, role);
+    if (!data.date || isNaN(new Date(data.date).getTime())) throw new BadRequestException('A valid date is required');
+    if ([data.price12Hours, data.price24Hours].some((p) => p !== undefined && p !== null && (!Number.isFinite(Number(p)) || Number(p) < 0))) {
+      throw new BadRequestException('Prices must be zero or more');
+    }
+    const targetDate = istDay(data.date);
 
     return this.prisma.pricingOverride.upsert({
       where: {
@@ -496,14 +517,14 @@ export class FarmhousesService {
     endDate: string,
     note?: string,
     userRole?: string,
+    actorId?: string,
   ) {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-
-    const targetStart = new Date(startDate);
-    targetStart.setHours(0, 0, 0, 0);
-
-    if (userRole === Role.OWNER && targetStart < todayStart) {
+    if (userRole === Role.OWNER) await this.assertOwnerAccess(farmhouseId, actorId || '', Role.OWNER);
+    if (!startDate || !endDate || isNaN(new Date(startDate).getTime()) || isNaN(new Date(endDate).getTime()) || new Date(endDate) <= new Date(startDate)) {
+      throw new BadRequestException('Choose a valid start and end date');
+    }
+    // Compare India calendar days (a UTC server would otherwise treat "today in India" as the past).
+    if (userRole === Role.OWNER && istDay(startDate) < istDay(new Date())) {
       throw new BadRequestException('Past dates cannot be blocked by Owner Admin accounts. System Admin privileges required.');
     }
 
@@ -563,7 +584,10 @@ export class FarmhousesService {
     });
   }
 
-  async removeBlockedDateRange(id: string) {
+  async removeBlockedDateRange(id: string, actorId: string, role: Role) {
+    const blocked = await this.prisma.blockedDateRange.findUnique({ where: { id }, select: { farmhouseId: true } });
+    if (!blocked) throw new NotFoundException('Blocked date range not found');
+    await this.assertOwnerAccess(blocked.farmhouseId, actorId, role);
     return this.prisma.blockedDateRange.delete({
       where: { id },
     });

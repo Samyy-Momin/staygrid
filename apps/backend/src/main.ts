@@ -5,18 +5,31 @@ import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import * as fs from 'fs';
 import * as yaml from 'yaml';
+import helmet from 'helmet';
+import { NestExpressApplication } from '@nestjs/platform-express';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
+  const isProd = process.env.NODE_ENV === 'production';
 
+  // Behind a load balancer / reverse proxy: use the real client IP for rate limiting.
+  app.set('trust proxy', 1);
+  app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+
+  const configuredOrigins = (process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const allowedOrigins = isProd
+    ? configuredOrigins
+    : [...configuredOrigins, 'http://localhost:3001', 'http://localhost:3002', 'http://127.0.0.1:3001'];
+  if (isProd && allowedOrigins.length === 0) {
+    throw new Error('CORS_ORIGINS must include the deployed admin origin in production');
+  }
   app.enableCors({
     origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-      // Allow requests with no origin (like mobile apps) or specific allowed origins
-      if (!origin || origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1') || origin.match(/^http:\/\/(192\.168|10\.|172\.(1[6-9]|2[0-9]|3[0-1]))\.\d{1,3}\.\d{1,3}:\d+$/)) {
-        callback(null, true);
-      } else {
-        callback(new Error('Not allowed by CORS'));
-      }
+      if (!origin || allowedOrigins.includes(origin)) callback(null, true);
+      else callback(new Error('Not allowed by CORS'));
     },
     credentials: true,
   });
@@ -39,10 +52,16 @@ async function bootstrap() {
 
   // Write the OpenAPI specification to a YAML file as requested
   const yamlString = yaml.stringify(document);
-  fs.writeFileSync('swagger-spec.yaml', yamlString);
+  if (process.env.GENERATE_OPENAPI_FILE === 'true') {
+    fs.writeFileSync('swagger-spec.yaml', yamlString);
+  }
 
-  SwaggerModule.setup('api/docs', app, document);
+  // Public API docs are a reconnaissance gift; only expose them outside production unless explicitly enabled.
+  if (!isProd || process.env.SWAGGER_ENABLED === 'true') {
+    SwaggerModule.setup('api/docs', app, document);
+  }
+  app.enableShutdownHooks();
 
-  await app.listen(3000, '0.0.0.0');
+  await app.listen(Number(process.env.PORT) || 3000, '0.0.0.0');
 }
 void bootstrap();

@@ -507,9 +507,9 @@ export default function HomeScreen() {
                   <Text className="text-white font-[Inter_700Bold]">Log In / Sign Up</Text>
                 </TouchableOpacity>
               </View>
-            ) : userBookings.length > 0 ? (
+            ) : userNotifications.length > 0 ? (
               <FlatList
-                data={userBookings}
+                data={userNotifications}
                 keyExtractor={(b, idx) => (b.id ? String(b.id) : String(idx))}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: 20 }}

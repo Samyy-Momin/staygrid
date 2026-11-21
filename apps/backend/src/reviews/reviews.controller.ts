@@ -15,12 +15,10 @@ export class ReviewsController {
   constructor(private readonly reviewsService: ReviewsService) {}
 
   @Post()
-  create(@Req() req: any, @Body() createReviewDto: CreateReviewDto) {
-    const userId = req.user?.id || createReviewDto.userId || 'guest_user';
-    return this.reviewsService.create({
-      ...createReviewDto,
-      userId,
-    });
+  @UseGuards(RolesGuard)
+  @Roles(Role.CUSTOMER)
+  create(@Req() req: AuthenticatedRequest, @Body() createReviewDto: CreateReviewDto) {
+    return this.reviewsService.create(createReviewDto, req.user.id);
   }
 
   @Get()

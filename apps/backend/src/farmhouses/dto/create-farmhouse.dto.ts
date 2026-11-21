@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNumber, IsOptional, Min, IsArray, IsBoolean } from 'class-validator';
+import { ApiProperty, PartialType } from '@nestjs/swagger';
+import { IsString, IsNumber, IsOptional, Min, Max, IsArray, IsBoolean } from 'class-validator';
 
 export class CreateFarmhouseDto {
   @ApiProperty()
@@ -323,4 +323,43 @@ export class CreateFarmhouseDto {
   @IsOptional()
   @IsString()
   hostName?: string;
+
+  // Pricing extras
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  tokenAmount?: number;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  weekendPrice12Hours?: number;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  weekendPrice24Hours?: number;
+
+  // System-admin only (stripped for owners in the controller)
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  defaultCommissionPercentage?: number;
 }
+
+export class UpdateFarmhouseDto extends PartialType(CreateFarmhouseDto) {}
+
+/** Fields only a system admin may set. Owners sending them get them silently dropped. */
+export const ADMIN_ONLY_FARMHOUSE_FIELDS = [
+  'isActive',
+  'isFeatured',
+  'isBestMatch',
+  'isTrusted',
+  'ownerId',
+  'defaultCommissionPercentage',
+] as const;

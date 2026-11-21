@@ -3,6 +3,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Link, useRouter } from "expo-router";
 import { useState, useEffect } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { authApi } from "../lib/authApi";
+import { homeRouteFor } from "../lib/ownerApi";
 import { StatusBar } from "expo-status-bar";
 
 export default function AppEntry() {
@@ -10,24 +12,25 @@ export default function AppEntry() {
  const [appState, setAppState] = useState<"SPLASH" | "ONBOARDING" | "AUTH">("SPLASH");
 
  useEffect(() => {
- // Simulate splash screen delay and check onboarding status
+ let isMounted = true;
  const initializeApp = async () => {
  try {
  const hasSeenOnboarding = await AsyncStorage.getItem("has_seen_onboarding");
- 
- setTimeout(() => {
- if (hasSeenOnboarding === "true") {
- setAppState("AUTH");
+ const session = await authApi.getSession();
+ if (!isMounted) return;
+ if (session?.user) {
+   router.replace(homeRouteFor(session.user) as any);
  } else {
- setAppState("ONBOARDING");
+   setAppState(hasSeenOnboarding === "true" ? "AUTH" : "ONBOARDING");
  }
- }, 2000); // 2 seconds splash screen
  } catch (e) {
+ if (!isMounted) return;
  setAppState("ONBOARDING");
  }
  };
 
  initializeApp();
+ return () => { isMounted = false; };
  }, []);
 
  const finishOnboarding = async () => {
